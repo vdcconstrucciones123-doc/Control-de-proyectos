@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block title %}Registro | Site Audit Pro Lite{% endblock %}
+
+{% block pre_content %}{% endblock %}
+
+{% block content %}
+  <section class="auth-screen">
+    <div class="auth-shell auth-shell-register">
+      <div class="auth-brand-panel">
+        <div class="brand-mark" aria-hidden="true">SA</div>
+        <div class="auth-kicker">Nuevo usuario</div>
+        <h1 class="auth-title">Crea tu acceso de trabajo</h1>
+        <p class="auth-copy">Empieza con tu propio espacio y luego avanzamos al compartido por proyecto.</p>
+      </div>
+      <div class="auth-form-panel">
+        <div class="auth-form-card">
+          <div class="auth-form-kicker">Cuenta</div>
+          <h2 class="auth-form-title">Crear usuario</h2>
+          <form method="post" class="auth-form-stack">
+            {% csrf_token %}
+            {% for field in form %}
+              <div>
+                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% if field.help_text %}
+                  <div class="form-text">{{ field.help_text|safe }}</div>
+                {% endif %}
+                {% for error in field.errors %}
+                  <div class="text-danger small mt-1">{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endfor %}
+            <button type="submit" class="btn btn-primary btn-lg w-100">Crear cuenta</button>
+          </form>
+          <div class="auth-form-footer">¿Ya tienes cuenta? <a href="{% url 'login' %}">Iniciar sesión</a></div>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}{% endblock %}

@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 import dj_database_url
@@ -26,6 +27,20 @@ INSTALLED_APPS = [
     "django_bootstrap5",
     "report_app",
 ]
+
+cloudinary_url = os.getenv("CLOUDINARY_URL", "").strip()
+cloudinary_cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME", "").strip()
+cloudinary_api_key = os.getenv("CLOUDINARY_API_KEY", "").strip()
+cloudinary_api_secret = os.getenv("CLOUDINARY_API_SECRET", "").strip()
+use_cloudinary = bool(
+    cloudinary_url or (cloudinary_cloud_name and cloudinary_api_key and cloudinary_api_secret)
+)
+
+if use_cloudinary:
+    INSTALLED_APPS += [
+        "cloudinary_storage",
+        "cloudinary",
+    ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -74,7 +89,43 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
+if "test" in sys.argv:
+    STORAGES["staticfiles"] = {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    }
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+if use_cloudinary:
+    if cloudinary_url:
+        os.environ.setdefault("CLOUDINARY_URL", cloudinary_url)
+    else:
+        CLOUDINARY_STORAGE = {
+            "CLOUD_NAME": cloudinary_cloud_name,
+            "API_KEY": cloudinary_api_key,
+            "API_SECRET": cloudinary_api_secret,
+            "SECURE": True,
+        }
+        CLOUDINARY_URL = (
+            f"cloudinary://{cloudinary_api_key}:{cloudinary_api_secret}@{cloudinary_cloud_name}"
+        )
+        os.environ.setdefault("CLOUDINARY_URL", CLOUDINARY_URL)
+
+    STORAGES["default"] = {
+        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+    }
+    MEDIA_URL = "/media/"
 
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
@@ -89,3 +140,7 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+LOGIN_URL = "/acceso/"
+LOGIN_REDIRECT_URL = "/panel-principal/"
+LOGOUT_REDIRECT_URL = "/acceso/"

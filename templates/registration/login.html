@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+
+{% block title %}Acceso | Site Audit Pro Lite{% endblock %}
+
+{% block pre_content %}{% endblock %}
+
+{% block content %}
+  <section class="auth-screen">
+    <div class="auth-shell">
+      <div class="auth-brand-panel">
+        <div class="brand-mark" aria-hidden="true">SA</div>
+        <div class="auth-kicker">Acceso seguro</div>
+        <h1 class="auth-title">Ingresa a tu espacio de reportes</h1>
+        <p class="auth-copy">Cada usuario trabaja con sus propios proyectos y reportes sin alterar el flujo actual de campo.</p>
+        <div class="auth-feature-list">
+          <div class="auth-feature-item"><i class="bi bi-person-badge"></i><span>Acceso por usuario</span></div>
+          <div class="auth-feature-item"><i class="bi bi-folder2-open"></i><span>Proyectos separados por cuenta</span></div>
+          <div class="auth-feature-item"><i class="bi bi-filetype-pdf"></i><span>PDF y vista previa intactos</span></div>
+        </div>
+      </div>
+      <div class="auth-form-panel">
+        <div class="auth-form-card">
+          <div class="auth-form-kicker">Panel de ingreso</div>
+          <h2 class="auth-form-title">Iniciar sesión</h2>
+          <p class="auth-form-copy">Usa tu usuario para continuar al panel principal.</p>
+          {% if form.errors %}
+            <div class="alert alert-danger">Usuario o contraseña incorrectos.</div>
+          {% endif %}
+          <form method="post" class="auth-form-stack">
+            {% csrf_token %}
+            <div>
+              <label class="form-label" for="id_username">Usuario</label>
+              <input type="text" name="username" autofocus autocapitalize="none" autocomplete="username" maxlength="150" class="form-control" id="id_username" required>
+            </div>
+            <div>
+              <label class="form-label" for="id_password">Contraseña</label>
+              <input type="password" name="password" autocomplete="current-password" class="form-control" id="id_password" required>
+            </div>
+            <input type="hidden" name="next" value="{{ next|default:'/panel-principal/' }}">
+            <button type="submit" class="btn btn-primary btn-lg w-100">Entrar al panel</button>
+          </form>
+          <div class="auth-form-footer">¿Aún no tienes cuenta? <a href="{% url 'register' %}">Crear usuario</a></div>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}{% endblock %}

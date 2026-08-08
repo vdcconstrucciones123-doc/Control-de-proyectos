@@ -1,5 +1,59 @@
-from django import forms
 import datetime
+from django import forms
+from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.models import User
+
+
+class SignUpForm(UserCreationForm):
+    first_name = forms.CharField(
+        label="Nombre",
+        required=False,
+        widget=forms.TextInput(attrs={
+            "class": "form-control",
+            "placeholder": "Ej: Aldo",
+        }),
+    )
+    last_name = forms.CharField(
+        label="Apellido",
+        required=False,
+        widget=forms.TextInput(attrs={
+            "class": "form-control",
+            "placeholder": "Ej: Pérez",
+        }),
+    )
+    email = forms.EmailField(
+        label="Correo",
+        required=False,
+        widget=forms.EmailInput(attrs={
+            "class": "form-control",
+            "placeholder": "correo@empresa.com",
+        }),
+    )
+
+    class Meta(UserCreationForm.Meta):
+        model = User
+        fields = ("username", "first_name", "last_name", "email", "password1", "password2")
+        widgets = {
+            "username": forms.TextInput(attrs={
+                "class": "form-control",
+                "placeholder": "Usuario de acceso",
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["username"].widget.attrs.update({
+            "class": "form-control",
+            "placeholder": "Usuario de acceso",
+        })
+        self.fields["password1"].widget.attrs.update({
+            "class": "form-control",
+            "placeholder": "Mínimo 8 caracteres",
+        })
+        self.fields["password2"].widget.attrs.update({
+            "class": "form-control",
+            "placeholder": "Repite la contraseña",
+        })
 
 class ProjectForm(forms.Form):
     company_name = forms.CharField(

@@ -11,9 +11,11 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
   <link rel="stylesheet" href="{% static 'report_app/theme.css' %}?v=1">
-  <link rel="stylesheet" href="{% static 'report_app/styles.css' %}?v=20">
+  <link rel="stylesheet" href="{% static 'report_app/styles.css' %}?v=21">
+  {% block extra_head %}{% endblock %}
 </head>
-<body data-app-theme="site-audit">
+<body data-app-theme="site-audit" data-current-user="{% if request.user.is_authenticated %}{{ request.user.username }}{% else %}guest{% endif %}">
+  {% block pre_content %}
   <script>
     window.INIT_PROJECT_SLUG = "{% if project_slug %}{{ project_slug }}{% else %}{% endif %}";
     window.INIT_REPORT_ID = "{% if report_id %}{{ report_id }}{% else %}{% endif %}";
@@ -21,10 +23,13 @@
     window.INIT_NEW_PROJECT = {% if new_project %}true{% else %}false{% endif %};
     window.INIT_EDIT_PROJECT = {% if edit_project %}true{% else %}false{% endif %};
   </script>
+  {% endblock %}
   {% block content %}{% endblock %}
 
+  {% block scripts %}
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="{% static 'report_app/app.js' %}?v=21"></script>
+  {% endblock %}
 </body>
 </html>
