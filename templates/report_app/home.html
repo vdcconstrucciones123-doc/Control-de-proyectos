@@ -1,0 +1,391 @@
+{% extends 'base.html' %}
+{% load django_bootstrap5 %}
+
+{% block title %}Site Audit Pro Lite{% endblock %}
+
+{% block content %}
+  <div id="selectionScreen" class="selection-screen">
+    <div class="container py-5">
+              <span class="report-summary-pill-label">Nombre</span>
+        <div class="row g-0 align-items-center">
+          <div class="col-lg-6 selection-hero-left text-white p-5">
+            <div class="brand-lockup d-flex align-items-center gap-3 mb-4">
+              <span class="report-summary-pill-label">Tipo</span>
+              <div class="brand-copy text-start">
+                <div class="brand-name">Site Audit Pro</div>
+                <div class="brand-tagline">Reporting visual profesional para obra</div>
+              </div>
+            </div>
+            <div class="selection-copy-stack">
+              <h1 id="selectionTitle" class="display-6 fw-bold mb-3">Crea tu proyecto</h1>
+              <p id="selectionSubtitle" class="lead">Completa los datos para empezar un nuevo reporte.</p>
+            </div>
+            <div id="projectFormSection">
+              <div class="card app-panel-card p-4 mb-4">
+                {% bootstrap_form project_form %}
+              </div>
+              <div class="d-grid gap-3 mt-2">
+                <button id="createProjectBtn" type="button" class="btn btn-primary btn-lg selection-btn"><i class="bi bi-plus-circle me-2"></i>Crear proyecto</button>
+                <button id="backToMainPanelBtn" type="button" class="btn btn-outline-secondary btn-lg">Volver al panel principal</button>
+              </div>
+            </div>
+            <div id="projectCreatedSection" class="d-none mt-4">
+              <div class="card app-panel-card p-3">
+                <div class="mb-3">
+                  <div class="text-uppercase small text-muted">Proyectos</div>
+                  <strong class="h6 mb-0">Proyectos creados</strong>
+                </div>
+                <div id="projectButtons" class="d-grid gap-2 mb-3"></div>
+                <button id="createAnotherProjectBtn" type="button" class="btn btn-outline-primary w-100">Crear nuevo proyecto</button>
+                <div class="form-text mt-2">Puedes seleccionar un proyecto existente o crear uno nuevo.</div>
+              </div>
+            </div>
+            <div id="reportTypeSection" class="d-none mt-4">
+              <button id="backToProjectsBtn" type="button" class="btn btn-sm btn-outline-light mb-3">← Volver a proyectos</button>
+              <div class="card app-panel-card p-4 mb-4">
+                <div id="selectedProjectInfo" class="mb-3 small"></div>
+                <h2 class="h5 mb-3">Crear reporte</h2>
+                <div class="mb-3">
+                  {% bootstrap_form report_type_form %}
+                </div>
+                <div class="d-grid gap-3 mt-3">
+                  <button id="createReportBtn" type="button" class="btn btn-primary btn-lg selection-btn"><i class="bi bi-file-earmark-text me-2"></i>Abrir formulario</button>
+                </div>
+              </div>
+
+              <div id="selectionReportListSection" class="card app-panel-card p-3 mt-3 d-none">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <div>
+                    <div class="text-uppercase small text-muted">Reportes creados</div>
+                    <strong class="h6">Reportes del proyecto</strong>
+                  </div>
+                </div>
+                <div id="selectionReportList" class="list-group"></div>
+              </div>
+            </div>
+            <div class="mt-4 text-white-50 small d-flex flex-column gap-2">
+              <span class="badge bg-white text-primary rounded-pill px-3 py-2 align-self-start"><i class="bi bi-phone me-1"></i>Mobile first</span>
+              <span>Al continuar se abrirá el formulario de reporte para completar los detalles.</span>
+            </div>
+          </div>
+          <div class="col-lg-6">
+            <div class="selection-hero-image h-100 d-flex align-items-center justify-content-center p-5">
+              <div class="mockup-card p-4">
+                <div class="mockup-header d-flex align-items-center gap-2 mb-4">
+                  <span class="dot dot-red"></span>
+                  <span class="dot dot-yellow"></span>
+                  <span class="dot dot-green"></span>
+                </div>
+                <div class="mockup-title mb-4">Proyecto nuevo</div>
+                <div class="mockup-item mb-3"><i class="bi bi-building-fill text-primary me-2"></i>Nombre del proyecto</div>
+                <div class="mockup-item mb-3"><i class="bi bi-geo-alt-fill text-primary me-2"></i>Ubicación</div>
+                <div class="mockup-item"><i class="bi bi-file-earmark-text-fill text-primary me-2"></i>Reporte de avance o incidencia</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="appContent" class="container py-3 d-none">
+    <header class="app-header d-flex justify-content-between align-items-center mb-3 flex-wrap gap-3">
+      <div class="app-brand d-flex align-items-center gap-3">
+        <div class="brand-mark brand-mark-sm" aria-hidden="true">SA</div>
+        <div>
+          <h1 class="app-title mb-0">Site Audit Pro</h1>
+          <p class="app-subtitle mb-0">Panel de reportes de obra</p>
+        </div>
+      </div>
+      <div class="app-header-actions d-flex gap-2 flex-wrap">
+        <button id="backToStartBtn" class="btn btn-outline-secondary btn-sm"><i class="bi bi-house-door me-1"></i>Inicio</button>
+        <button id="exportPdfBtn" class="btn btn-primary btn-sm"><i class="bi bi-file-earmark-pdf me-1"></i>Exportar PDF</button>
+      </div>
+    </header>
+
+    <section class="card app-section-card mb-3 p-4">
+      <div class="section-card-header">
+        <span class="section-icon"><i class="bi bi-folder2-open"></i></span>
+        <div>
+          <h2 class="section-title mb-0">Datos del reporte</h2>
+          <p class="section-desc mb-0">Completa la información general antes de registrar frentes e issues.</p>
+        </div>
+      </div>
+      <div id="reportBackActions" class="d-none mb-3">
+        <button id="backToProjectBtn" type="button" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Volver al proyecto</button>
+      </div>
+      <div id="projectHeaderSection">
+        <div class="mb-3">
+          <label class="form-label mb-1">Proyecto</label>
+          <div id="projectSelectGroup" class="input-group">
+            <select id="projectSelect" class="form-select"></select>
+            <button id="newProjectBtn" type="button" class="btn btn-outline-primary">Crear proyecto</button>
+          </div>
+          <div id="projectDisplayGroup" class="d-none">
+            <div id="projectSummaryCard" class="project-summary-card">
+              <div class="project-summary-row">
+                <div>
+                  <div class="project-summary-label">Empresa</div>
+                  <div id="currentCompanyName" class="project-summary-value"></div>
+                </div>
+                {% if not new_report and not report_id %}
+                <button id="editProjectInfoBtn" type="button" class="btn btn-outline-primary btn-sm d-none">Editar datos</button>
+                {% endif %}
+              </div>
+              <div class="project-summary-grid">
+                <div>
+                  <div class="project-summary-label">Proyecto</div>
+                  <div id="currentProjectName" class="project-summary-value"></div>
+                </div>
+                <div>
+                  <div class="project-summary-label">Ubicación</div>
+                  <div id="currentProjectLocation" class="project-summary-value"></div>
+                </div>
+              </div>
+            </div>
+            <div id="projectEditForm" class="project-edit-card d-none mt-3">
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label for="editCompanyName" class="form-label">Empresa</label>
+                  <input id="editCompanyName" class="form-control">
+                </div>
+                <div class="col-md-4">
+                  <label for="editProjectName" class="form-label">Proyecto</label>
+                  <input id="editProjectName" class="form-control">
+                </div>
+                <div class="col-md-4">
+                  <label for="editProjectLocation" class="form-label">Ubicación</label>
+                  <input id="editProjectLocation" class="form-control">
+                </div>
+              </div>
+              <div class="d-flex gap-2 flex-wrap mt-3">
+                <button id="saveProjectInfoBtn" type="button" class="btn btn-primary btn-sm">Guardar cambios</button>
+                <button id="cancelProjectEditBtn" type="button" class="btn btn-outline-secondary btn-sm">Cancelar</button>
+              </div>
+            </div>
+          </div>
+          <div id="projectHelperText" class="form-text">Ya estás dentro de un proyecto activo. Completa los datos del reporte.</div>
+        </div>
+      </div>
+
+      <form method="post" enctype="multipart/form-data" id="metadataForm">
+        {% csrf_token %}
+        {% for field in report_form %}
+          {% if field.name != 'project_name' %}
+            {% bootstrap_field field %}
+          {% endif %}
+        {% endfor %}
+      </form>
+      <div class="d-grid gap-3 mt-3">
+        <button id="continueToEditorBtn" type="button" class="btn btn-primary btn-lg selection-btn"><i class="bi bi-arrow-right-circle me-2"></i>Crear reporte</button>
+        <button id="cancelReportMetaEditBtn" type="button" class="btn btn-outline-secondary d-none">Cancelar edición</button>
+      </div>
+    </section>
+
+    <div id="reportFormExtras" class="d-none">
+      <details id="existingReportSummarySection" class="card app-section-card mb-3 p-3 d-none report-summary-disclosure">
+        <summary class="report-summary-toggle">
+          <div class="report-summary-toggle-copy">
+            <div class="fw-semibold">Resumen del reporte</div>
+            <div class="text-muted small">Abre este bloque sólo si quieres ver el detalle completo.</div>
+          </div>
+          <div class="report-summary-toggle-meta">
+            <div class="report-summary-pill">
+              <div class="report-summary-pill-label">Nombre</div>
+              <div id="existingReportTitleCompact" class="report-summary-pill-value"></div>
+            </div>
+            <div class="report-summary-pill">
+              <div class="report-summary-pill-label">Tipo</div>
+              <div id="existingReportTypeCompact" class="report-summary-pill-value"></div>
+            </div>
+          </div>
+        </summary>
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3 mt-3">
+          <div>
+            <div class="fw-semibold">Detalle del reporte</div>
+            <div class="text-muted small">Desde aquí puedes revisar o actualizar los datos generales del reporte.</div>
+          </div>
+          <button id="editReportInfoBtn" type="button" class="btn btn-outline-primary btn-sm d-none">Editar información del reporte</button>
+        </div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Reporte</label>
+            <input id="existingReportTitle" class="form-control" readonly>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Tipo</label>
+            <input id="existingReportTypeDisplay" class="form-control" readonly>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Semana</label>
+            <input id="existingReportWeek" class="form-control" readonly>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Fecha</label>
+            <input id="existingReportDate" class="form-control" readonly>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Rango de trabajo</label>
+            <input id="existingLaborRange" class="form-control" readonly>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Solicitado por</label>
+            <input id="existingForWhom" class="form-control" readonly>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Responsable</label>
+            <input id="existingFromWhom" class="form-control" readonly>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Objetivo</label>
+            <textarea id="existingObjectiveText" class="form-control" rows="3" readonly></textarea>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Análisis</label>
+            <textarea id="existingAnalysisText" class="form-control" rows="4" readonly></textarea>
+          </div>
+        </div>
+      </details>
+
+      <div id="reportFrontsSection" class="card app-section-card mb-3 p-3 d-none">
+        <div class="section-card-header section-card-header-compact">
+          <span class="section-icon"><i class="bi bi-diagram-3"></i></span>
+          <div>
+            <h2 class="section-title mb-0">Frentes de obra</h2>
+            <p class="section-desc mb-0">Organiza el reporte por áreas o frentes del proyecto.</p>
+          </div>
+        </div>
+        <div class="row g-2 align-items-end">
+          <div class="col-8">
+            <label class="form-label">Agregar Frente / Área</label>
+            <input id="frontName" class="form-control" placeholder="Ej: Frente 2 / Fachada Norte / Área 1">
+          </div>
+          <div class="col-4">
+            <button id="addFrontBtn" class="btn btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Agregar frente</button>
+          </div>
+        </div>
+        <div class="d-flex justify-content-end mt-3">
+          <button type="button" class="togglePreviewBtn btn btn-outline-primary btn-sm">Ver vista previa</button>
+        </div>
+        <div id="frontList" class="mt-3"></div>
+      </div>
+
+      <div id="frontDetailSection" class="card app-section-card mb-3 p-3 d-none">
+        <div class="section-card-header section-card-header-compact mb-3">
+          <span class="section-icon"><i class="bi bi-geo-alt"></i></span>
+          <div class="flex-grow-1">
+            <h2 class="section-title mb-0">Detalle del frente</h2>
+            <p class="section-desc mb-0">Gestiona los issues registrados en el frente seleccionado.</p>
+          </div>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+          <div>
+            <label class="form-label mb-1">Frente seleccionado</label>
+            <div id="selectedFrontName" class="fw-semibold"></div>
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            <button id="openIssueFormBtn" type="button" class="btn btn-primary btn-sm">Crear issue</button>
+            <button id="backToFrontListBtn" type="button" class="btn btn-outline-secondary btn-sm">Volver a frentes</button>
+          </div>
+        </div>
+        <div id="frontIssueList" class="mb-3"></div>
+        <div id="issueDetailPanel" class="issue-detail-panel card p-3 mb-3 d-none"></div>
+      </div>
+
+      <div id="reportMainSections">
+      <div id="reportEditorSections" class="d-none">
+        <details class="card app-section-card mb-3 p-3 section-disclosure" id="reportConclusionsSection">
+        <summary class="section-disclosure-toggle">
+          <div class="section-card-header section-card-header-compact mb-0">
+            <span class="section-icon"><i class="bi bi-journal-text"></i></span>
+            <div>
+              <h2 class="section-title mb-0">Conclusiones y recomendaciones</h2>
+              <p class="section-desc mb-0">Resumen final del avance y acciones sugeridas.</p>
+            </div>
+          </div>
+        </summary>
+        <div class="section-disclosure-body mt-3">
+          <div class="mb-2">
+            <label class="form-label">Conclusiones</label>
+            <div class="input-group mb-2">
+              <input id="conclusionItemInput" class="form-control" placeholder="Escriba una conclusión y presione Agregar">
+              <button id="addConclusionBtn" class="btn btn-outline-primary" type="button">Agregar</button>
+            </div>
+            <div id="conclusionList" class="small text-muted"></div>
+            <textarea id="conclusionText" class="form-control mt-2" rows="3" placeholder="Opcional: también puede escribir varias conclusiones en líneas separadas"></textarea>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Recomendaciones</label>
+            <div class="input-group mb-2">
+              <input id="recommendationItemInput" class="form-control" placeholder="Escriba una recomendación y presione Agregar">
+              <button id="addRecommendationBtn" class="btn btn-outline-primary" type="button">Agregar</button>
+            </div>
+            <div id="recommendationList" class="small text-muted"></div>
+            <textarea id="recommendationText" class="form-control mt-2" rows="3" placeholder="Opcional: también puede escribir varias recomendaciones en líneas separadas"></textarea>
+          </div>
+        </div>
+      </details>
+
+      <section class="card app-section-card mb-3 p-3" id="entrySection">
+        <div class="section-card-header section-card-header-compact mb-3">
+          <span class="section-icon"><i class="bi bi-camera"></i></span>
+          <div>
+            <h2 class="section-title mb-0">Agregar issue</h2>
+            <p class="section-desc mb-0">Captura fotos, estado y descripción del punto observado.</p>
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Frente</label>
+          <select id="selectFront" class="form-select"></select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Estado</label>
+          <select id="statusSelect" class="form-select">
+            <option value="En proceso">En proceso</option>
+            <option value="Terminado">Terminado</option>
+            <option value="Pendiente">Pendiente</option>
+            <option value="Observado">Observado</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Descripción</label>
+          <textarea id="entryDesc" class="form-control" rows="2" placeholder="Descripción breve"></textarea>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Fotos (múltiples, usar cámara en celular)</label>
+          <input id="photoInput" type="file" accept="image/*" capture="environment" multiple class="form-control">
+        </div>
+        <div class="mb-2 d-flex gap-2 flex-wrap">
+          <button id="addEntryBtn" class="btn btn-primary">Agregar issue</button>
+          <button id="cancelEntryEditBtn" class="btn btn-outline-secondary d-none">Cancelar edición</button>
+        </div>
+        <div id="entryList" class="mt-3"></div>
+      </section>
+
+      <section class="card app-section-card mb-3 p-3" id="previewSection">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+          <div>
+            <div class="section-card-header section-card-header-compact mb-2">
+              <span class="section-icon"><i class="bi bi-eye"></i></span>
+              <div>
+                <h2 class="section-title mb-0">Vista previa del reporte</h2>
+                <p class="section-desc mb-0">Revisa el documento antes de exportar el PDF.</p>
+              </div>
+            </div>
+            <button type="button" class="togglePreviewBtn btn btn-sm btn-outline-secondary">Cerrar vista previa</button>
+          </div>
+          <div class="form-check mb-0">
+            <input class="form-check-input" type="checkbox" id="combineByStatus">
+            <label class="form-check-label" for="combineByStatus">Combinar entradas con mismo estado</label>
+          </div>
+        </div>
+        <div id="reportContainer" class="report-container"></div>
+      </section>
+    </div>
+
+    <footer class="app-footer">
+      <div class="app-footer-brand">Site Audit Pro</div>
+      <div class="app-footer-text">Reportes fotográficos de obra · Guardado local · Exportación PDF</div>
+    </footer>
+  </div>
+{% endblock %}
+

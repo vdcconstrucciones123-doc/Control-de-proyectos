@@ -1,0 +1,69 @@
+/* Global theme tokens for the application UI.
+   Print/PDF styles remain in styles.css because they follow a fixed document layout. */
+:root {
+  --font-sans: "Manrope", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Space Grotesk", var(--font-sans);
+
+  --brand-950: #0b1324;
+  --brand-900: #10203f;
+  --brand-800: #17315f;
+  --brand-700: #1d4f91;
+  --primary: #1f6feb;
+  --primary-dark: #1b5fd0;
+  --primary-darker: #164da8;
+  --primary-light: #edf5ff;
+  --primary-soft: #dbeafe;
+  --accent: #0f9d8f;
+  --accent-soft: #d9f6f1;
+
+  --surface: #ffffff;
+  --surface-soft: #f7fafc;
+  --surface-muted: #eef3f8;
+  --surface-elevated: rgba(255, 255, 255, 0.8);
+  --border: #dbe4ef;
+  --border-strong: #c0ccdb;
+
+  --text: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-on-dark: #f8fafc;
+  --text-on-dark-muted: rgba(248, 250, 252, 0.76);
+
+  --radius-xl: 28px;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+
+  --shadow-card: 0 18px 42px rgba(15, 23, 42, 0.07);
+  --shadow-hero: 0 28px 72px rgba(15, 23, 42, 0.12);
+  --shadow-hover: 0 18px 38px rgba(31, 111, 235, 0.14);
+  --focus-ring: 0 0 0 0.24rem rgba(31, 111, 235, 0.18);
+
+  --gradient-brand: linear-gradient(145deg, var(--brand-950) 0%, var(--brand-900) 42%, var(--brand-700) 100%);
+  --gradient-primary: linear-gradient(180deg, var(--primary) 0%, var(--primary-dark) 100%);
+  --gradient-primary-hover: linear-gradient(180deg, var(--primary-dark) 0%, var(--primary-darker) 100%);
+  --gradient-page: radial-gradient(circle at top left, rgba(31, 111, 235, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(15, 157, 143, 0.10), transparent 24%),
+    linear-gradient(180deg, #f3f8ff 0%, var(--surface-soft) 44%, var(--surface-muted) 100%);
+
+  --bs-body-font-family: var(--font-sans);
+  --bs-body-color: var(--text);
+  --bs-body-bg: transparent;
+  --bs-primary: var(--primary);
+  --bs-primary-rgb: 31, 111, 235;
+  --bs-secondary-color: var(--text-secondary);
+  --bs-border-color: var(--border);
+  --bs-border-radius: var(--radius-sm);
+  --bs-border-radius-lg: var(--radius-md);
+  --bs-box-shadow: var(--shadow-card);
+}
+
+body[data-app-theme="site-audit"] {
+  color: var(--text);
+  background: var(--gradient-page);
+}
+
+body[data-app-theme="site-audit"] ::selection {
+  background: rgba(31, 111, 235, 0.2);
+  color: var(--text);
+}

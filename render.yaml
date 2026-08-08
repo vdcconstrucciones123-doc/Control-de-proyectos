@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: site-audit-pro-lite
+    runtime: python
+    plan: free
+    buildCommand: ./build.sh
+    startCommand: gunicorn site_audit_report.wsgi:application
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: site-audit-pro-lite.onrender.com
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: https://site-audit-pro-lite.onrender.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: site-audit-pro-lite-db
+          property: connectionString
+
+databases:
+  - name: site-audit-pro-lite-db
+    plan: free
