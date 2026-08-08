@@ -1,6 +1,7 @@
 (function(){
   const currentUser = document.body?.dataset?.currentUser || 'guest';
   const storageKey = `siteAuditLite_v1_${currentUser}`;
+  const storageMetaKey = 'siteAuditLite_v1_meta';
   const PROJECT_ROLE_LABELS = {
     viewer: 'Lector',
     editor: 'Editor',
@@ -39,6 +40,7 @@
     reportMetaComplete: false,
     existingReportOpen: false,
     showPreviewMode: false,
+    workspaceView: 'fronts',
     currentFrontId: null,
     selectedEntryId: null,
     laborDateFrom: '',
@@ -124,6 +126,10 @@
   async function deleteReportRemote(project, reportId){
     await requestJson(`/api/projects/${project.slug}/reports/${reportId}/`, { method: 'DELETE' });
   }
+  async function shareReportRemote(project, reportId, payload){
+    const data = await requestJson(`/api/projects/${project.slug}/reports/${reportId}/members/`, { method: 'POST', body: JSON.stringify(payload) });
+    return data;
+  }
   async function createFrontRemote(project, reportId, name){
     const data = await requestJson(`/api/projects/${project.slug}/reports/${reportId}/fronts/`, { method: 'POST', body: JSON.stringify({ name }) });
     return data.front;
@@ -178,6 +184,49 @@
       syncCurrentProject();
     }
     localStorage.setItem(storageKey, JSON.stringify(state));
+    localStorage.setItem(storageMetaKey, JSON.stringify({ user: currentUser }));
+  }
+
+  function resetClientState(){
+    state = {
+      projects: [],
+      currentProjectId: null,
+      currentReportId: null,
+      selectionStage: 'project',
+      showProjectForm: true,
+      companyName: 'VDC CONSTRUCCIONES SAC',
+      projectName: '',
+      projectLocation: '',
+      reportType: '',
+      reportTitle: 'REPORTE FOTOGRÁFICO DE OBRA',
+      reportWeek: '8',
+      reportDate: new Date().toISOString().slice(0, 10),
+      reportMetaComplete: false,
+      existingReportOpen: false,
+      showPreviewMode: false,
+      workspaceView: 'fronts',
+      currentFrontId: null,
+      selectedEntryId: null,
+      laborDateFrom: '',
+      laborDateTo: '',
+      forWhom: '',
+      fromWhom: '',
+      objectiveText: '',
+      analysisText: '',
+      conclusionText: '',
+      recommendationText: '',
+      conclusionItems: [],
+      recommendationItems: [],
+      coverImage: '',
+      fronts: [],
+      entries: [],
+      autoMergeDup: false,
+      combineByStatus: false,
+      editingEntryId: null,
+      showIssueForm: false,
+      editingProjectInfo: false,
+      editingReportMeta: false
+    };
   }
 
   function getProjectById(id){ return state.projects.find(p => p.id === id); }
@@ -277,6 +326,7 @@
       state.editingEntryId = report.editingEntryId || null;
       state.showIssueForm = !!report.showIssueForm;
       state.showPreviewMode = !!report.showPreviewMode;
+      state.workspaceView = state.showPreviewMode ? 'preview' : ((report.currentFrontId || state.showIssueForm) ? 'issues' : 'fronts');
       state.reportMetaComplete = report.metaComplete !== undefined ? !!report.metaComplete : true;
       if(state.existingReportOpen){
         state.reportMetaComplete = true;
@@ -304,6 +354,7 @@
       state.combineByStatus = false;
       state.editingEntryId = null;
       state.showIssueForm = false;
+      state.workspaceView = 'fronts';
       state.reportMetaComplete = false;
     }
   }
@@ -852,6 +903,7 @@
       editingProjectInfo: !!data.editingProjectInfo,
       editingReportMeta: !!data.editingReportMeta,
       showIssueForm: !!data.showIssueForm,
+      workspaceView: data.workspaceView || state.workspaceView,
       laborDateFrom: data.laborDateFrom || state.laborDateFrom,
       laborDateTo: data.laborDateTo || state.laborDateTo,
       forWhom: data.forWhom || state.forWhom,
@@ -883,6 +935,24 @@
 
   function load(){
     const routeInfo = getRouteInfo();
+    let storedUser = null;
+    try {
+      storedUser = JSON.parse(localStorage.getItem(storageMetaKey) || 'null')?.user || null;
+    } catch (err) {
+      console.warn('Error leyendo metadato de sesión', err);
+    }
+
+    const hasStoredState = !!localStorage.getItem(storageKey);
+    if(storedUser && storedUser !== currentUser){
+      resetClientState();
+      localStorage.removeItem(storageKey);
+      localStorage.setItem(storageMetaKey, JSON.stringify({ user: currentUser }));
+    } else if(!storedUser && hasStoredState){
+      localStorage.removeItem(storageKey);
+      localStorage.setItem(storageMetaKey, JSON.stringify({ user: currentUser }));
+      resetClientState();
+    }
+
     const v = localStorage.getItem(storageKey);
     if(v){
       try {
@@ -890,6 +960,8 @@
       } catch (err) {
         console.warn('Error leyendo estado desde localStorage', err);
       }
+    } else {
+      resetClientState();
     }
 
     // Si la plantilla inyectó un slug inicial, abrir o crear el proyecto localmente
@@ -968,7 +1040,7 @@
       showSelectionScreen();
     } else if(routeInfo.onPanelPath){
       setPanelRoute({ replace: true });
-      showSelectionScreen();
+      showAppScreen();
     } else if(routeInfo.onProjectPath && state.currentProjectId){
       const proj = getCurrentProject();
       setProjectRoute(proj, { replace: true });
@@ -987,7 +1059,7 @@
       showAppScreen();
     } else {
       setPanelRoute({ replace: true });
-      showSelectionScreen();
+      showAppScreen();
     }
   }
 
@@ -1231,8 +1303,10 @@
   }
 
   function renderAll(){
+    renderSidebarContext();
     renderProjectSelect();
     renderProjectPanel();
+    renderDashboardHub();
     renderSelectionHeader();
     renderSelectionReportList();
     renderReportList();
@@ -1251,6 +1325,15 @@
     if(reportBackActions){
       reportBackActions.classList.toggle('d-none', !isOnReportWorkspaceRoute() || !!state.editingReportMeta);
     }
+    const deleteCurrentReportBtn = $('deleteCurrentReportBtn');
+    const editCurrentReportBtn = $('editCurrentReportBtn');
+    const currentReport = getCurrentReport();
+    if(deleteCurrentReportBtn){
+      deleteCurrentReportBtn.classList.toggle('d-none', !isOnReportWorkspaceRoute() || !currentReport?.canEdit);
+    }
+    if(editCurrentReportBtn){
+      editCurrentReportBtn.classList.toggle('d-none', !isOnReportWorkspaceRoute() || !currentReport?.canEdit || !!state.editingReportMeta);
+    }
     const helperText = $('projectHelperText');
     if(helperText){
       if(state.currentProjectId){
@@ -1261,7 +1344,11 @@
         helperText.classList.remove('d-none');
       }
     }
+    $('exportPdfBtn')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
+    $('dashboardHubSection')?.classList.toggle('d-none', isOnReportWorkspaceRoute());
+    $('reportWorkspaceSection')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
     renderReportEditorSections();
+    applyWorkspaceView();
     $('companyName').value = state.companyName || 'VDC CONSTRUCCIONES SAC';
     $('projectName').value = state.projectName || '';
     $('projectLocation').value = state.projectLocation || '';
@@ -1317,6 +1404,52 @@
     });
     $('combineByStatus').checked = !!state.combineByStatus;
     renderFrontList(); renderDuplicateAlert(); renderFrontSelect(); renderEntryList(); renderFrontDetail(); renderReport();
+  }
+
+  function applyWorkspaceView(){
+    const isWorkspaceRoute = isOnReportWorkspaceRoute() && !!state.reportMetaComplete;
+    const view = state.workspaceView || 'fronts';
+    const reportFrontsSection = $('reportFrontsSection');
+    const frontDetailSection = $('frontDetailSection');
+    const entrySection = $('entrySection');
+    const previewSection = $('previewSection');
+    const existingReportSummarySection = $('existingReportSummarySection');
+    const reportConclusionsSection = $('reportConclusionsSection');
+
+    document.querySelectorAll('[data-workspace-view]').forEach(link => {
+      link.classList.toggle('active', isWorkspaceRoute && link.dataset.workspaceView === view);
+    });
+
+    if(!isWorkspaceRoute){
+      return;
+    }
+
+    state.showPreviewMode = view === 'preview';
+
+    if(existingReportSummarySection){
+      existingReportSummarySection.classList.add('d-none');
+    }
+    if(reportFrontsSection){
+      reportFrontsSection.classList.toggle('d-none', view !== 'fronts');
+    }
+    if(frontDetailSection){
+      frontDetailSection.classList.toggle('d-none', view !== 'issues' || !state.currentFrontId);
+    }
+    if(entrySection){
+      entrySection.classList.toggle('d-none', view !== 'issues' || (!state.showIssueForm && !!state.currentFrontId));
+    }
+    if(reportConclusionsSection){
+      reportConclusionsSection.classList.toggle('d-none', view !== 'issues');
+    }
+    if(previewSection){
+      previewSection.classList.toggle('d-none', view !== 'preview');
+    }
+  }
+
+  function renderSidebarContext(){
+    const isWorkspaceRoute = isOnReportWorkspaceRoute();
+    $('sidebarDashboardGroup')?.classList.toggle('d-none', isWorkspaceRoute);
+    $('sidebarWorkspaceGroup')?.classList.toggle('d-none', !isWorkspaceRoute);
   }
 
   function renderFrontDetail(){
@@ -1405,7 +1538,7 @@
     }
   }
 
-  function renderFrontList(){ const container = $('frontList'); container.innerHTML = ''; if(!state.fronts.length){ container.innerHTML = '<p class="text-muted small mb-0">Sin frentes. Agrega uno para poder registrar issues.</p>'; return; } state.fronts.forEach(f => { const n = frontNumber(f.id); const div = document.createElement('div'); div.className = 'front-item d-flex align-items-center justify-content-between flex-wrap gap-2'; div.innerHTML = `<div class="d-flex align-items-center gap-2"><span class="badge bg-dark front-num">${n}</span><span>${escapeHtml(f.name)}</span></div><div class="d-flex gap-2 flex-wrap"><button data-id="${f.id}" class="btn btn-sm btn-primary open-front-btn">Ver detalle</button><button data-id="${f.id}" class="btn btn-sm btn-danger rm-front">Eliminar</button></div>`; container.appendChild(div); }); container.querySelectorAll('.rm-front').forEach(b => b.addEventListener('click', e => { const id = Number(e.target.dataset.id); if(confirm('¿Eliminar frente y sus entradas?')) removeFront(id); })); container.querySelectorAll('.open-front-btn').forEach(b => b.addEventListener('click', e => { const id = Number(e.target.dataset.id); const project = getCurrentProject(); if(id && project && state.currentReportId){ state.currentFrontId = id; state.showIssueForm = false; state.editingEntryId = null; state.selectedEntryId = null; save(); setFrontRoute(project, state.currentReportId, id); renderAll(); } })); }
+  function renderFrontList(){ const container = $('frontList'); container.innerHTML = ''; if(!state.fronts.length){ container.innerHTML = '<p class="text-muted small mb-0">Sin frentes. Agrega uno para poder registrar issues.</p>'; return; } state.fronts.forEach(f => { const n = frontNumber(f.id); const div = document.createElement('div'); div.className = 'front-item d-flex align-items-center justify-content-between flex-wrap gap-2'; div.innerHTML = `<div class="d-flex align-items-center gap-2"><span class="badge bg-dark front-num">${n}</span><span>${escapeHtml(f.name)}</span></div><div class="d-flex gap-2 flex-wrap"><button data-id="${f.id}" class="btn btn-sm btn-primary open-front-btn">Ver detalle</button><button data-id="${f.id}" class="btn btn-sm btn-danger rm-front">Eliminar</button></div>`; container.appendChild(div); }); container.querySelectorAll('.rm-front').forEach(b => b.addEventListener('click', e => { const id = Number(e.target.dataset.id); if(confirm('¿Eliminar frente y sus entradas?')) removeFront(id); })); container.querySelectorAll('.open-front-btn').forEach(b => b.addEventListener('click', e => { const id = Number(e.target.dataset.id); const project = getCurrentProject(); if(id && project && state.currentReportId){ state.workspaceView = 'issues'; state.currentFrontId = id; state.showIssueForm = false; state.editingEntryId = null; state.selectedEntryId = null; save(); setFrontRoute(project, state.currentReportId, id); renderAll(); } })); }
   function renderEntryList(){ const container = $('entryList'); container.innerHTML = ''; const selectedFront = state.fronts.find(f => f.id === state.currentFrontId); const entries = selectedFront ? state.entries.filter(e => e.frontId === selectedFront.id) : state.entries; if(!entries.length){ container.innerHTML = '<p class="text-muted small mb-0">No hay issues en este frente. Crea una nueva issue cuando la necesites.</p>'; return; } entries.forEach(entry => { const front = state.fronts.find(f => f.id === entry.frontId); const name = front ? front.name : 'Frente eliminado'; const div = document.createElement('div'); div.className = 'entry-list-item'; div.innerHTML = `<div class="entry-list-meta"><div><strong>${escapeHtml(name)}</strong><br><span class="badge badge-status ${STATUS_BADGE[entry.status] || 'bg-info text-dark'}">${escapeHtml(entry.status)}</span></div><div class="entry-list-actions"><button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-entry">Editar</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-entry">Borrar</button></div></div><div class="entry-list-body">${escapeHtml(entry.desc || 'Sin descripción')}</div>`; container.appendChild(div); }); container.querySelectorAll('.edit-entry').forEach(btn => btn.addEventListener('click', e => { const entry = getEntryById(Number(e.target.dataset.id)); if(!entry) return; state.editingEntryId = entry.id; state.showIssueForm = true; $('selectFront').value = entry.frontId; $('selectFront').disabled = true; $('statusSelect').value = entry.status; $('entryDesc').value = entry.desc || ''; $('addEntryBtn').textContent = 'Guardar cambios'; $('cancelEntryEditBtn').classList.remove('d-none'); $('photoInput').value = ''; save(); renderAll(); $('entryDesc')?.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }); })); container.querySelectorAll('.delete-entry').forEach(btn => btn.addEventListener('click', e => { const id = Number(e.target.dataset.id); if(confirm('¿Borrar esta entrada del reporte?')) removeEntry(id); })); }
   function renderDuplicateAlert(){ const el = $('duplicateAlert'); if(!el) return; const groups = findDuplicateGroups(); if(!groups.length){ el.innerHTML = ''; return; } el.innerHTML = groups.map(group => { const names = group.map(f => `${frontNumber(f.id)}. ${escapeHtml(f.name)}`).join(', '); const keepId = group[0].id; const removeIds = group.slice(1).map(f => f.id); return `<div class="dup-group small"><strong>Duplicados:</strong> ${names}<button class="btn btn-sm btn-warning ms-2 merge-group" data-keep="${keepId}" data-remove="${removeIds.join(',')}">Fusionar</button></div>`; }).join(''); el.querySelectorAll('.merge-group').forEach(btn => btn.addEventListener('click', e => { const keepId = Number(e.target.dataset.keep); const removeIds = e.target.dataset.remove.split(',').map(Number); mergeFronts(keepId, removeIds); })); }
   function renderProjectSelect(){ const sel = $('projectSelect'); if(!sel) return; sel.innerHTML = ''; if(!state.projects.length){ const empty = document.createElement('option'); empty.value = ''; empty.textContent = 'Ningún proyecto creado'; sel.appendChild(empty); return; } const placeholder = document.createElement('option'); placeholder.value = ''; placeholder.textContent = 'Selecciona un proyecto'; placeholder.disabled = true; placeholder.selected = !state.currentProjectId; sel.appendChild(placeholder); state.projects.forEach(p => { const opt = document.createElement('option'); opt.value = p.id; opt.textContent = p.projectName || `Proyecto ${state.projects.indexOf(p) + 1}`; if(p.id === state.currentProjectId) opt.selected = true; sel.appendChild(opt); }); }
@@ -1470,6 +1603,124 @@
       if(projectSharingCard) projectSharingCard.classList.add('d-none');
       if(projectMembersList) projectMembersList.innerHTML = '';
       if(projectAccessBadge) projectAccessBadge.textContent = '';
+    }
+  }
+  function renderDashboardHub(){
+    const introHeader = $('dashboardIntroHeader');
+    const introActions = $('dashboardIntroActions');
+    const dashboardNewProjectBtn = $('dashboardNewProjectBtn');
+    const projectList = $('dashboardProjectList');
+    const projectFormCard = $('dashboardProjectFormCard');
+    const dashboardCompanyName = $('dashboardCompanyName');
+    const dashboardProjectName = $('dashboardProjectName');
+    const dashboardProjectLocation = $('dashboardProjectLocation');
+    const reportHub = $('dashboardReportHub');
+    const dashboardReportType = $('dashboardReportType');
+    const currentProjectName = $('dashboardCurrentProjectName');
+    const projectSummary = $('dashboardProjectSummary');
+    const reportList = $('dashboardReportList');
+    const current = getCurrentProject();
+    const showProjectDashboard = !!current && !isOnReportWorkspaceRoute() && !state.currentReportId;
+    const showProjectChooser = !current || isOnReportWorkspaceRoute() || state.showProjectForm;
+
+    if(introHeader){
+      introHeader.classList.toggle('d-none', !showProjectChooser);
+    }
+    if(introActions){
+      introActions.classList.toggle('d-none', !showProjectChooser);
+    }
+    if(dashboardNewProjectBtn){
+      dashboardNewProjectBtn.classList.toggle('d-none', !!current);
+    }
+
+    if(projectFormCard){
+      projectFormCard.classList.toggle('d-none', !state.showProjectForm);
+    }
+    if(dashboardCompanyName) dashboardCompanyName.value = state.companyName || 'VDC CONSTRUCCIONES SAC';
+    if(dashboardProjectName) dashboardProjectName.value = state.projectName || '';
+    if(dashboardProjectLocation) dashboardProjectLocation.value = state.projectLocation || '';
+
+    if(projectList){
+      projectList.classList.toggle('d-none', !showProjectChooser);
+      if(!state.projects.length){
+        projectList.innerHTML = '<div class="text-muted small">No hay proyectos creados todavía.</div>';
+      } else {
+        projectList.innerHTML = state.projects.map(project => `
+          <div class="project-member-item dashboard-project-item">
+            <div>
+              <div class="project-member-name">${escapeHtml(project.projectName || 'Proyecto sin nombre')}</div>
+              <div class="project-member-meta">${escapeHtml(project.companyName || 'Sin empresa')} · ${escapeHtml(project.projectLocation || 'Sin ubicación')}</div>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="button" data-id="${project.id}" class="btn btn-sm ${project.id === state.currentProjectId ? 'btn-primary' : 'btn-outline-primary'} dashboard-project-open">Abrir</button>
+              ${project.canDelete ? `<button type="button" data-id="${project.id}" class="btn btn-sm btn-outline-danger dashboard-project-delete">Eliminar</button>` : ''}
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    if(reportHub){
+      reportHub.classList.toggle('d-none', !showProjectDashboard);
+    }
+    if(!showProjectDashboard){
+      if(currentProjectName) currentProjectName.textContent = '';
+      if(projectSummary) projectSummary.innerHTML = '';
+      if(reportList) reportList.innerHTML = '';
+      return;
+    }
+
+    if(currentProjectName) currentProjectName.textContent = current.projectName || 'Proyecto sin nombre';
+    if(dashboardReportType){
+      dashboardReportType.value = state.reportType || '';
+    }
+    if(projectSummary){
+      projectSummary.innerHTML = `
+        <div class="project-summary-grid">
+          <div>
+            <div class="project-summary-label">Empresa</div>
+            <div class="project-summary-value">${escapeHtml(current.companyName || 'Sin empresa')}</div>
+          </div>
+          <div>
+            <div class="project-summary-label">Ubicación</div>
+            <div class="project-summary-value">${escapeHtml(current.projectLocation || 'Sin ubicación')}</div>
+          </div>
+        </div>`;
+    }
+    if(reportList){
+      const reports = Array.isArray(current.reports) ? current.reports : [];
+      reportList.innerHTML = reports.length
+        ? reports.map(report => `
+          <div class="list-group-item dashboard-report-item">
+            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+              <button type="button" data-id="${report.id}" class="btn btn-link p-0 text-start flex-grow-1 dashboard-report-open">${escapeHtml(report.title || 'Reporte sin título')}</button>
+              <div class="d-flex align-items-center gap-2">
+                ${(report.canShare) ? `<button type="button" data-report-share="${report.id}" class="btn btn-sm btn-outline-secondary" title="Colaboración"><i class="bi bi-people"></i></button>` : ''}
+                ${(report.canEdit) ? `<button type="button" data-report-delete="${report.id}" class="btn btn-sm btn-outline-danger" title="Eliminar reporte"><i class="bi bi-trash"></i></button>` : ''}
+              </div>
+            </div>
+            ${report.canShare ? `
+              <div id="reportSharePanel-${report.id}" class="report-share-panel d-none mt-2">
+                <div class="small text-muted mb-2">Colaboración del reporte</div>
+                <div class="small mb-2">${Array.isArray(report.members) && report.members.length ? report.members.map(member => `${escapeHtml(member.username)} · ${escapeHtml(PROJECT_ROLE_LABELS[member.role] || member.role)}${member.isOwner ? ' · Owner' : ''}`).join('<br>') : 'Sin usuarios asignados.'}</div>
+                <div class="row g-2">
+                  <div class="col-md-5">
+                    <input id="reportShareUsername-${report.id}" class="form-control form-control-sm" placeholder="Usuario">
+                  </div>
+                  <div class="col-md-4">
+                    <select id="reportShareRole-${report.id}" class="form-select form-select-sm">
+                      <option value="viewer">Lector</option>
+                      <option value="editor">Editor</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                  </div>
+                  <div class="col-md-3">
+                    <button type="button" data-report-share-save="${report.id}" class="btn btn-outline-primary btn-sm w-100">Guardar</button>
+                  </div>
+                </div>
+              </div>` : ''}
+          </div>`).join('')
+        : '<div class="text-muted small">Aún no hay reportes creados para este proyecto.</div>';
     }
   }
   function renderSelectionReportList(){ const section = $('selectionReportListSection'); const list = $('selectionReportList'); if(!section || !list) return; const project = getCurrentProject(); if(!project || state.selectionStage !== 'reportType'){ section.classList.add('d-none'); return; } section.classList.remove('d-none'); const reports = project.reports || []; if(!reports.length){ list.innerHTML = '<div class="text-muted small mb-0">Aún no hay reportes creados para este proyecto.</div>'; return; } list.innerHTML = reports.map(report => { const active = report.id === state.currentReportId ? 'active' : ''; return `<div class="list-group-item d-flex justify-content-between align-items-center ${active}"><button type="button" data-id="${report.id}" class="btn btn-link p-0 text-start flex-grow-1 report-select-btn">${escapeHtml(report.title || 'Reporte sin título')}</button><button type="button" data-delete-id="${report.id}" class="btn btn-sm btn-outline-danger ms-2">Eliminar</button></div>`; }).join(''); }
@@ -1643,8 +1894,8 @@
   }
 
   function showSelectionScreen(){
-    $('selectionScreen').classList.remove('d-none');
-    $('appContent').classList.add('d-none');
+    $('selectionScreen').classList.add('d-none');
+    $('appContent').classList.remove('d-none');
   }
 
   function showAppScreen(){
@@ -1691,6 +1942,37 @@
   }
 
   function bindEvents(){
+    document.querySelectorAll('[data-widget="pushmenu"]').forEach(toggle => {
+      toggle.addEventListener('click', event => {
+        event.preventDefault();
+        if(window.innerWidth <= 992){
+          document.body.classList.toggle('sidebar-open');
+          document.body.classList.remove('sidebar-collapse');
+        } else {
+          document.body.classList.toggle('sidebar-collapse');
+          document.body.classList.remove('sidebar-open');
+        }
+      });
+    });
+    document.querySelectorAll('[data-workspace-view]').forEach(link => {
+      link.addEventListener('click', event => {
+        event.preventDefault();
+        const nextView = link.dataset.workspaceView;
+        if(!nextView) return;
+        state.workspaceView = nextView;
+        state.showPreviewMode = nextView === 'preview';
+        if(nextView === 'fronts'){
+          state.currentFrontId = null;
+          state.showIssueForm = false;
+          state.selectedEntryId = null;
+          state.editingEntryId = null;
+        }
+        save();
+        renderAll();
+        const target = document.querySelector(link.getAttribute('href'));
+        target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
     $('createProjectBtn').addEventListener('click', async () => {
       const company = $('companyName').value.trim() || 'VDC CONSTRUCCIONES SAC';
       const projectName = $('projectName').value.trim();
@@ -1786,7 +2068,7 @@
       state.showPreviewMode = false;
       save();
       setPanelRoute();
-      showSelectionScreen();
+      showAppScreen();
       renderAll();
       updateSelectionScreenSections();
     });
@@ -1805,6 +2087,145 @@
       if(id) switchProject(id);
       updateSelectionScreenSections();
       $('reportTypeSection')?.scrollIntoView({ behavior: 'smooth' });
+    });
+    $('dashboardNewProjectBtn')?.addEventListener('click', () => {
+      state.showProjectForm = true;
+      state.selectionStage = 'project';
+      state.currentProjectId = null;
+      resetProjectForm();
+      renderAll();
+      $('dashboardProjectName')?.focus();
+    });
+    $('dashboardSaveProjectBtn')?.addEventListener('click', async () => {
+      const company = $('dashboardCompanyName')?.value.trim() || 'VDC CONSTRUCCIONES SAC';
+      const projectName = $('dashboardProjectName')?.value.trim();
+      const projectLocation = $('dashboardProjectLocation')?.value.trim() || '';
+      if(!projectName){
+        alert('El nombre del proyecto es obligatorio.');
+        $('dashboardProjectName')?.focus();
+        return;
+      }
+      state.companyName = company;
+      state.projectName = projectName;
+      state.projectLocation = projectLocation;
+      try {
+        await createProject(projectName, projectLocation);
+      } catch (error) {
+        alert(error.message);
+        return;
+      }
+      state.showProjectForm = false;
+      renderAll();
+    });
+    $('dashboardCancelProjectBtn')?.addEventListener('click', () => {
+      state.showProjectForm = false;
+      resetProjectForm();
+      renderAll();
+    });
+    $('dashboardProjectList')?.addEventListener('click', e => {
+      const deleteBtn = e.target.closest('.dashboard-project-delete');
+      if(deleteBtn){
+        const id = Number(deleteBtn.dataset.id);
+        if(id && confirm('¿Eliminar este proyecto? Esta acción no se puede deshacer.')){
+          deleteProject(id).catch(error => alert(error.message));
+        }
+        return;
+      }
+      const openBtn = e.target.closest('.dashboard-project-open');
+      if(!openBtn) return;
+      const id = Number(openBtn.dataset.id);
+      if(!id) return;
+      switchProject(id);
+      setProjectRoute(getCurrentProject());
+      renderAll();
+    });
+    $('dashboardBackToProjectsBtn')?.addEventListener('click', () => {
+      state.selectionStage = 'project';
+      state.showProjectForm = false;
+      state.currentProjectId = null;
+      state.currentReportId = null;
+      state.reportType = '';
+      state.existingReportOpen = false;
+      state.reportMetaComplete = false;
+      state.showPreviewMode = false;
+      state.workspaceView = 'fronts';
+      state.currentFrontId = null;
+      save();
+      setPanelRoute();
+      renderAll();
+    });
+    $('dashboardNewReportBtn')?.addEventListener('click', () => {
+      const project = getCurrentProject();
+      if(!project) return;
+      const reportType = $('dashboardReportType')?.value || '';
+      if(!reportType){
+        alert('Selecciona el tipo de reporte antes de continuar.');
+        $('dashboardReportType')?.focus();
+        return;
+      }
+      state.reportMetaComplete = false;
+      state.currentReportId = null;
+      state.existingReportOpen = false;
+      state.editingReportMeta = false;
+      resetReportDraftState();
+      state.reportType = reportType;
+      state.reportTitle = reportType === 'incidencia' ? 'REPORTE DE INCIDENCIA' : 'REPORTE DE AVANCES';
+      save();
+      setNewReportRoute(project);
+      renderAll();
+      showAppScreen();
+    });
+    $('dashboardReportList')?.addEventListener('click', e => {
+      const deleteButton = e.target.closest('[data-report-delete]');
+      if(deleteButton){
+        const reportId = Number(deleteButton.dataset.reportDelete);
+        if(reportId) deleteReport(reportId).catch(error => alert(error.message));
+        return;
+      }
+      const shareToggle = e.target.closest('[data-report-share]');
+      if(shareToggle){
+        const reportId = Number(shareToggle.dataset.reportShare);
+        if(!reportId) return;
+        const panel = $(`reportSharePanel-${reportId}`);
+        panel?.classList.toggle('d-none');
+        return;
+      }
+      const shareSave = e.target.closest('[data-report-share-save]');
+      if(shareSave){
+        const reportId = Number(shareSave.dataset.reportShareSave);
+        const project = getCurrentProject();
+        const report = project?.reports?.find(item => item.id === reportId);
+        if(!project || !report) return;
+        const username = $(`reportShareUsername-${reportId}`)?.value.trim();
+        const role = $(`reportShareRole-${reportId}`)?.value || 'viewer';
+        if(!username){
+          alert('Ingresa el usuario que quieres invitar.');
+          $(`reportShareUsername-${reportId}`)?.focus();
+          return;
+        }
+        shareReportRemote(project, reportId, { username, role })
+          .then(data => {
+            report.members = Array.isArray(data.members) ? data.members : report.members;
+            save();
+            renderAll();
+          })
+          .catch(error => alert(error.message));
+        return;
+      }
+      const button = e.target.closest('.dashboard-report-open');
+      if(!button) return;
+      const reportId = Number(button.dataset.id);
+      const project = getCurrentProject();
+      if(!project || !reportId) return;
+      project.currentReportId = reportId;
+      state.currentReportId = reportId;
+      state.existingReportOpen = true;
+      state.reportMetaComplete = true;
+      state.workspaceView = 'fronts';
+      loadProject(project);
+      save();
+      setReportRoute(project, reportId);
+      renderAll();
     });
     $('createAnotherProjectBtn').addEventListener('click', () => {
       state.showProjectForm = true;
@@ -1828,7 +2249,7 @@
       state.showPreviewMode = false;
       save();
       setPanelRoute();
-      showSelectionScreen();
+      showAppScreen();
       renderAll();
       updateSelectionScreenSections();
       $('projectButtons').scrollIntoView({ behavior: 'smooth' });
@@ -1849,12 +2270,25 @@
       state.existingReportOpen = false;
       state.reportMetaComplete = false;
       state.showPreviewMode = false;
+      state.workspaceView = 'fronts';
       state.editingReportMeta = false;
       save();
       setProjectRoute(current);
       renderAll();
       updateSelectionScreenSections();
       showSelectionScreen();
+    });
+    $('deleteCurrentReportBtn')?.addEventListener('click', () => {
+      if(state.currentReportId){
+        deleteReport(state.currentReportId).catch(error => alert(error.message));
+      }
+    });
+    $('editCurrentReportBtn')?.addEventListener('click', () => {
+      if(!state.currentReportId || !isOnReportRoute()) return;
+      state.editingReportMeta = true;
+      state.showPreviewMode = false;
+      save();
+      renderAll();
     });
     $('createNewReportBtn')?.addEventListener('click', () => {
       state.reportMetaComplete = false;
@@ -1966,6 +2400,7 @@
       state.reportType = reportType;
       state.reportMetaComplete = true;
       state.existingReportOpen = true;
+      state.workspaceView = 'fronts';
       state.editingReportMeta = false;
       loadProject(project);
       save();
@@ -1989,7 +2424,7 @@
       save();
       renderAll();
     });
-    $('backToStartBtn').addEventListener('click', () => {
+    $('backToStartBtn')?.addEventListener('click', () => {
       state.reportType = '';
       state.selectionStage = 'project';
       state.showProjectForm = false;
@@ -2093,10 +2528,10 @@
         alert(error.message);
       }
     });
-    $('openIssueFormBtn')?.addEventListener('click', () => { if(state.currentFrontId){ resetEntryEditor(); state.showIssueForm = true; state.selectedEntryId = null; save(); renderAll(); $('entryDesc')?.focus(); } });
-    document.querySelectorAll('.togglePreviewBtn').forEach(btn => btn.addEventListener('click', () => { state.showPreviewMode = !state.showPreviewMode; save(); renderAll(); }));
+    $('openIssueFormBtn')?.addEventListener('click', () => { if(state.currentFrontId){ resetEntryEditor(); state.workspaceView = 'issues'; state.showIssueForm = true; state.selectedEntryId = null; save(); renderAll(); $('entryDesc')?.focus(); } });
+    document.querySelectorAll('.togglePreviewBtn').forEach(btn => btn.addEventListener('click', () => { state.workspaceView = state.workspaceView === 'preview' ? 'fronts' : 'preview'; state.showPreviewMode = state.workspaceView === 'preview'; save(); renderAll(); }));
     $('combineByStatus').addEventListener('change', e => { state.combineByStatus = e.target.checked; save(); renderReport(); });
-    $('backToFrontListBtn')?.addEventListener('click', () => { const project = getCurrentProject(); state.currentFrontId = null; state.showIssueForm = false; state.selectedEntryId = null; state.editingEntryId = null; save(); if(project && state.currentReportId){ setReportRoute(project, state.currentReportId); } renderAll(); });
+    $('backToFrontListBtn')?.addEventListener('click', () => { const project = getCurrentProject(); state.workspaceView = 'fronts'; state.currentFrontId = null; state.showIssueForm = false; state.selectedEntryId = null; state.editingEntryId = null; save(); if(project && state.currentReportId){ setReportRoute(project, state.currentReportId); } renderAll(); });
     $('cancelEntryEditBtn').addEventListener('click', () => { resetEntryEditor(); save(); renderAll(); });
     $('addEntryBtn').addEventListener('click', async () => {
       const frontId = Number($('selectFront').value);
@@ -2136,7 +2571,7 @@
         alert(error.message);
       }
     });
-    $('exportPdfBtn').addEventListener('click', () => {
+    $('exportPdfBtn')?.addEventListener('click', () => {
       generateReportPdf().then(pdf => {
         pdf.save('reporte.pdf');
       });
