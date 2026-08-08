@@ -404,8 +404,20 @@ body.sidebar-collapse .app-sidebar {
   transform: translateX(-100%);
 }
 
+body:not(.sidebar-collapse) .app-sidebar {
+  transform: translateX(0);
+}
+
+body.sidebar-open .app-sidebar {
+  transform: translateX(0);
+}
+
 body.sidebar-collapse .app-main {
   margin-left: 0;
+}
+
+body:not(.sidebar-collapse) .app-main {
+  margin-left: 280px;
 }
 
 .app-sidebar-brand {
