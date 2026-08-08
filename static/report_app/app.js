@@ -679,6 +679,12 @@
     return !!(routeInfo.onNewReportPath || routeInfo.onReportPath || routeInfo.onFrontPath);
   }
 
+  function hasActiveReportWorkspaceContext(){
+    const routeInfo = getRouteInfo();
+    const isInsideReportContext = !!(routeInfo.onNewReportPath || routeInfo.onReportPath || routeInfo.onFrontPath);
+    return !!(state.currentProjectId && state.currentReportId && isInsideReportContext);
+  }
+
   function resetReportDraftState(){
     state.currentReportId = null;
     state.reportType = '';
@@ -1407,7 +1413,7 @@
   }
 
   function applyWorkspaceView(){
-    const isWorkspaceRoute = isOnReportWorkspaceRoute() && !!state.reportMetaComplete;
+    const shouldShowWorkspaceControls = isOnReportWorkspaceRoute() && hasActiveReportWorkspaceContext();
     const view = state.workspaceView || 'fronts';
     const reportFrontsSection = $('reportFrontsSection');
     const frontDetailSection = $('frontDetailSection');
@@ -1417,10 +1423,10 @@
     const reportConclusionsSection = $('reportConclusionsSection');
 
     document.querySelectorAll('[data-workspace-view]').forEach(link => {
-      link.classList.toggle('active', isWorkspaceRoute && link.dataset.workspaceView === view);
+      link.classList.toggle('active', shouldShowWorkspaceControls && link.dataset.workspaceView === view);
     });
 
-    if(!isWorkspaceRoute){
+    if(!shouldShowWorkspaceControls){
       return;
     }
 
@@ -1433,10 +1439,12 @@
       reportFrontsSection.classList.toggle('d-none', view !== 'fronts');
     }
     if(frontDetailSection){
-      frontDetailSection.classList.toggle('d-none', view !== 'issues' || !state.currentFrontId);
+      const shouldShowFrontDetail = view === 'issues' && (state.currentFrontId || state.fronts.length || state.entries.length || state.showIssueForm);
+      frontDetailSection.classList.toggle('d-none', !shouldShowFrontDetail);
     }
     if(entrySection){
-      entrySection.classList.toggle('d-none', view !== 'issues' || (!state.showIssueForm && !!state.currentFrontId));
+      const shouldShowEntrySection = view === 'issues' && (state.showIssueForm || state.currentFrontId || state.entries.length || state.fronts.length);
+      entrySection.classList.toggle('d-none', !shouldShowEntrySection);
     }
     if(reportConclusionsSection){
       reportConclusionsSection.classList.toggle('d-none', view !== 'issues');
@@ -1447,9 +1455,9 @@
   }
 
   function renderSidebarContext(){
-    const isWorkspaceRoute = isOnReportWorkspaceRoute();
-    $('sidebarDashboardGroup')?.classList.toggle('d-none', isWorkspaceRoute);
-    $('sidebarWorkspaceGroup')?.classList.toggle('d-none', !isWorkspaceRoute);
+    const shouldShowWorkspaceControls = isOnReportWorkspaceRoute() && hasActiveReportWorkspaceContext();
+    $('sidebarDashboardGroup')?.classList.toggle('d-none', shouldShowWorkspaceControls);
+    $('sidebarWorkspaceGroup')?.classList.toggle('d-none', !shouldShowWorkspaceControls);
   }
 
   function renderFrontDetail(){
@@ -1941,19 +1949,13 @@
     renderSelectionReportList();
   }
 
-  function toggleSidebarMenu(event){
-    if(event){
-      event.preventDefault();
-      event.stopPropagation();
-    }
-
+  function setSidebarState(shouldOpen){
     const body = document.body;
     const sidebar = document.querySelector('.app-sidebar');
     const main = document.querySelector('.app-main');
     const isMobile = window.innerWidth <= 992;
 
     if(isMobile){
-      const shouldOpen = !body.classList.contains('sidebar-open');
       body.classList.toggle('sidebar-open', shouldOpen);
       body.classList.toggle('sidebar-collapse', !shouldOpen);
       body.classList.toggle('sidebar-closed', !shouldOpen);
@@ -1966,7 +1968,7 @@
       return;
     }
 
-    const shouldCollapse = !body.classList.contains('sidebar-collapse');
+    const shouldCollapse = !shouldOpen;
     body.classList.toggle('sidebar-collapse', shouldCollapse);
     body.classList.toggle('sidebar-open', false);
     body.classList.toggle('sidebar-closed', shouldCollapse);
@@ -1979,10 +1981,37 @@
     }
   }
 
+  function toggleSidebarMenu(event){
+    if(event){
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    const shouldOpen = !document.body.classList.contains('sidebar-open');
+    setSidebarState(shouldOpen);
+  }
+
   function bindEvents(){
     document.querySelectorAll('[data-widget="pushmenu"]').forEach(toggle => {
       toggle.addEventListener('click', toggleSidebarMenu);
     });
+
+    document.addEventListener('click', event => {
+      const target = event.target;
+      const insideSidebar = target.closest('.app-sidebar');
+      const toggleButton = target.closest('[data-widget="pushmenu"]');
+      const workspaceLink = target.closest('[data-workspace-view]');
+      if(window.innerWidth <= 992 && document.body.classList.contains('sidebar-open') && !insideSidebar && !toggleButton && !workspaceLink){
+        setSidebarState(false);
+      }
+    });
+
+    document.addEventListener('keydown', event => {
+      if(event.key === 'Escape' && window.innerWidth <= 992){
+        setSidebarState(false);
+      }
+    });
+
     document.querySelectorAll('[data-workspace-view]').forEach(link => {
       link.addEventListener('click', event => {
         event.preventDefault();
@@ -1990,9 +2019,19 @@
         if(!nextView) return;
         state.workspaceView = nextView;
         state.showPreviewMode = nextView === 'preview';
+        state.reportMetaComplete = true;
+        state.existingReportOpen = true;
         if(nextView === 'fronts'){
           state.currentFrontId = null;
           state.showIssueForm = false;
+          state.selectedEntryId = null;
+          state.editingEntryId = null;
+        }
+        if(nextView === 'issues'){
+          if(!state.currentFrontId && state.fronts.length){
+            state.currentFrontId = state.fronts[0].id;
+          }
+          state.showIssueForm = !state.currentFrontId;
           state.selectedEntryId = null;
           state.editingEntryId = null;
         }
