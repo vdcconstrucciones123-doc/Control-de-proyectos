@@ -80,7 +80,7 @@
     report.laborDateTo = state.laborDateTo;
     report.forWhom = state.forWhom;
     report.fromWhom = state.fromWhom;
-    report.objectiveText = state.objectiveText;
+    clearEntryPhotoInputs();
     report.analysisText = state.analysisText;
     report.conclusionText = state.conclusionText;
     report.recommendationText = state.recommendationText;
@@ -905,7 +905,9 @@
   function getFrontName(frontId){ const front = state.fronts.find(f => f.id === frontId); return front ? front.name : 'Frente eliminado'; }
   function removeFront(id){ state.fronts = state.fronts.filter(f => f.id !== id); state.entries = state.entries.filter(e => e.frontId !== id); save(); renderAll(); }
   function removeEntry(id){ state.entries = state.entries.filter(e => e.id !== id); if(state.editingEntryId === id){ resetEntryEditor(); } save(); renderAll(); }
-  function resetEntryEditor(){ state.editingEntryId = null; state.showIssueForm = false; $('addEntryBtn').textContent = 'Agregar issue'; $('cancelEntryEditBtn').classList.add('d-none'); $('photoInput').value = ''; $('entryDesc').value = ''; const frontId = Number($('selectFront').value); if(frontId){ $('selectFront').value = frontId; } $('selectFront').disabled = false; }
+  function clearEntryPhotoInputs(){ if($('photoInput')) $('photoInput').value = ''; if($('photoCameraInput')) $('photoCameraInput').value = ''; }
+  function getEntryPhotoFiles(){ return [...($('photoInput')?.files ? Array.from($('photoInput').files) : []), ...($('photoCameraInput')?.files ? Array.from($('photoCameraInput').files) : [])]; }
+  function resetEntryEditor(){ state.editingEntryId = null; state.showIssueForm = false; $('addEntryBtn').textContent = 'Agregar issue'; $('cancelEntryEditBtn').classList.add('d-none'); clearEntryPhotoInputs(); $('entryDesc').value = ''; const frontId = Number($('selectFront').value); if(frontId){ $('selectFront').value = frontId; } $('selectFront').disabled = false; }
   function loadTemplate(){ let added = 0; FRONT_TEMPLATE.forEach(name => { if(!findFrontByName(name)){ state.fronts.push({ id: Date.now() + Math.random(), name }); added++; } }); if(added === 0){ alert('Todos los frentes de la plantilla ya existen.'); return; } save(); renderAll(); alert(`Plantilla cargada: ${added} frente(s) agregado(s).`); }
   function mergeAllDuplicates(){ const groups = findDuplicateGroups(); if(!groups.length){ alert('No hay frentes duplicados.'); return; } let merged = 0; groups.forEach(group => { const keep = group[0]; const remove = group.slice(1).map(f => f.id); remove.forEach(id => { state.entries.forEach(e => { if(e.frontId === id) e.frontId = keep.id; }); state.fronts = state.fronts.filter(f => f.id !== id); merged++; }); }); save(); renderAll(); alert(`Fusión completada: ${merged} frente(s) duplicado(s) eliminado(s).`); }
   function mergeFronts(keepId, removeIds){ removeIds.forEach(id => { state.entries.forEach(e => { if(e.frontId === id) e.frontId = keepId; }); state.fronts = state.fronts.filter(f => f.id !== id); }); save(); renderAll(); }
@@ -1205,7 +1207,7 @@
       $('entryDesc').value = entry.desc || '';
       $('addEntryBtn').textContent = 'Guardar cambios';
       $('cancelEntryEditBtn').classList.remove('d-none');
-      $('photoInput').value = '';
+          clearEntryPhotoInputs();
       save();
       renderAll();
       $('entryDesc')?.focus();
@@ -1883,6 +1885,8 @@
       state.coverImage = optimizedImage;
       save(); renderReport();
     });
+    $('takePhotoBtn')?.addEventListener('click', () => $('photoCameraInput')?.click());
+    $('choosePhotoBtn')?.addEventListener('click', () => $('photoInput')?.click());
     $('addFrontBtn').addEventListener('click', () => { const name = $('frontName').value; if(addFront(name)) $('frontName').value = ''; });
     $('openIssueFormBtn')?.addEventListener('click', () => { if(state.currentFrontId){ resetEntryEditor(); state.showIssueForm = true; state.selectedEntryId = null; save(); renderAll(); $('entryDesc')?.focus(); } });
     document.querySelectorAll('.togglePreviewBtn').forEach(btn => btn.addEventListener('click', () => { state.showPreviewMode = !state.showPreviewMode; save(); renderAll(); }));
@@ -1893,8 +1897,7 @@
       const frontId = Number($('selectFront').value);
       const status = $('statusSelect').value;
       const desc = $('entryDesc').value;
-      const files = $('photoInput').files;
-      const images = [];
+      const files = getEntryPhotoFiles();
       const finalize = (nextImages) => {
         if(state.editingEntryId != null){
           const existing = getEntryById(state.editingEntryId);
@@ -1911,7 +1914,7 @@
         resetEntryEditor();
         save(); renderAll();
       };
-      Promise.all(Array.from(files).map(file => optimizeImageFile(file)))
+      Promise.all(files.map(file => optimizeImageFile(file)))
         .then(nextImages => {
           finalize(nextImages);
         })

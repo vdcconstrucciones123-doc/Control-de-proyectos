@@ -86,8 +86,14 @@
         <textarea id="entryDesc" class="form-control" rows="2" placeholder="Descripción breve"></textarea>
       </div>
       <div class="mb-2">
-        <label class="form-label">Fotos (múltiples, usar cámara en celular)</label>
-        <input id="photoInput" type="file" accept="image/*" multiple class="form-control">
+        <label class="form-label">Fotos</label>
+        <div class="d-flex gap-2 flex-wrap mb-2">
+          <button id="takePhotoBtn" type="button" class="btn btn-outline-primary btn-sm">Tomar foto</button>
+          <button id="choosePhotoBtn" type="button" class="btn btn-outline-secondary btn-sm">Elegir archivo</button>
+        </div>
+        <input id="photoCameraInput" type="file" accept="image/*" capture="environment" multiple class="d-none">
+        <input id="photoInput" type="file" accept="image/*" multiple class="d-none">
+        <div class="form-text">Puedes tomar una foto nueva o elegir imágenes guardadas.</div>
       </div>
       <div class="mb-2">
         <button id="addEntryBtn" class="btn btn-primary">Agregar entrada</button>

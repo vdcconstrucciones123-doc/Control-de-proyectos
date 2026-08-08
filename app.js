@@ -636,16 +636,29 @@
     $('loadTemplateBtn').addEventListener('click', loadTemplate);
     $('mergeAllDupBtn').addEventListener('click', mergeAllDuplicates);
 
+    const getEntryPhotoFiles = () => [
+      ...($('photoInput')?.files ? Array.from($('photoInput').files) : []),
+      ...($('photoCameraInput')?.files ? Array.from($('photoCameraInput').files) : [])
+    ];
+
+    const clearEntryPhotoInputs = () => {
+      if($('photoInput')) $('photoInput').value = '';
+      if($('photoCameraInput')) $('photoCameraInput').value = '';
+    };
+
+    $('takePhotoBtn')?.addEventListener('click', () => $('photoCameraInput')?.click());
+    $('choosePhotoBtn')?.addEventListener('click', () => $('photoInput')?.click());
+
     $('addEntryBtn').addEventListener('click', () => {
       const frontId = Number($('selectFront').value);
       if(!frontId){ alert('Cree al menos un frente'); return; }
       const status = $('statusSelect').value;
       const desc = $('entryDesc').value.trim();
-      const files = $('photoInput').files;
+      const files = getEntryPhotoFiles();
       if(files && files.length){
         handleFiles(files, list => {
           addEntry(frontId, status, desc, list);
-          $('photoInput').value = '';
+          clearEntryPhotoInputs();
           $('entryDesc').value = '';
         });
       } else {
