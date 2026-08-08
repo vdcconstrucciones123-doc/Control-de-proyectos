@@ -5,22 +5,23 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.db.models import Prefetch, Q
-from django.http import HttpResponseBadRequest, JsonResponse
+from django.http import Http404, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 
 from .forms import ProjectForm, ReportMetaForm, ReportTypeForm, SignUpForm
-from .models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportProject
+from .models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportMembership, ReportProject
 
 
 def _project_queryset_for_user(user):
     return ReportProject.objects.filter(
-        Q(owner=user) | Q(memberships__user=user)
+        Q(owner=user) | Q(memberships__user=user) | Q(reports__memberships__user=user)
     ).select_related("owner").prefetch_related(
         "memberships__user",
         Prefetch(
             "reports",
             queryset=ProjectReport.objects.prefetch_related(
+                "memberships__user",
                 "fronts",
                 Prefetch("entries", queryset=ReportEntry.objects.prefetch_related("images", "front")),
             ),
@@ -41,6 +42,58 @@ def _can_edit_project(project, user):
 
 def _can_share_project(project, user):
     return project.owner_id == user.id
+
+
+def _serialize_project_members(project):
+    members = [{
+        "username": project.owner.username,
+        "role": ProjectMembership.ROLE_ADMIN,
+        "isOwner": True,
+    }]
+    for membership in project.memberships.select_related("user").all():
+        members.append({
+            "username": membership.user.username,
+            "role": membership.role,
+            "isOwner": False,
+        })
+    return members
+
+
+def _report_role_for_user(report, user):
+    project_role = _project_role_for_user(report.project, user)
+    if project_role:
+        return project_role
+    membership = report.memberships.filter(user=user).first()
+    return membership.role if membership else None
+
+
+def _can_edit_report(report, user):
+    return _report_role_for_user(report, user) in {ProjectMembership.ROLE_ADMIN, ProjectMembership.ROLE_EDITOR}
+
+
+def _can_share_report(report, user):
+    return _report_role_for_user(report, user) == ProjectMembership.ROLE_ADMIN
+
+
+def _user_can_access_report(report, user):
+    return _report_role_for_user(report, user) is not None
+
+
+def _serialize_report_members(report):
+    members = []
+    if report.project.owner_id:
+      members.append({
+          "username": report.project.owner.username,
+          "role": ProjectMembership.ROLE_ADMIN,
+          "isOwner": True,
+      })
+    for membership in report.memberships.select_related("user").all():
+        members.append({
+            "username": membership.user.username,
+            "role": membership.role,
+            "isOwner": False,
+        })
+    return members
 
 
 def _parse_json(request):
@@ -84,21 +137,6 @@ def _coerce_list(value):
     return []
 
 
-def _serialize_members(project):
-    members = [{
-        "username": project.owner.username,
-        "role": ProjectMembership.ROLE_ADMIN,
-        "isOwner": True,
-    }]
-    for membership in project.memberships.select_related("user").all():
-        members.append({
-            "username": membership.user.username,
-            "role": membership.role,
-            "isOwner": False,
-        })
-    return members
-
-
 def _serialize_entry(entry):
     return {
         "id": entry.id,
@@ -110,7 +148,8 @@ def _serialize_entry(entry):
     }
 
 
-def _serialize_report(report):
+def _serialize_report(report, user):
+    role = _report_role_for_user(report, user)
     return {
         "id": report.id,
         "type": report.report_type,
@@ -137,6 +176,10 @@ def _serialize_report(report):
         "showPreviewMode": False,
         "metaComplete": True,
         "currentFrontId": None,
+        "accessRole": role,
+        "canEdit": _can_edit_report(report, user),
+        "canShare": _can_share_report(report, user),
+        "members": _serialize_report_members(report),
     }
 
 
@@ -144,6 +187,7 @@ def _serialize_project(project, user):
     role = _project_role_for_user(project, user)
     can_edit = role in {ProjectMembership.ROLE_ADMIN, ProjectMembership.ROLE_EDITOR}
     can_share = role == ProjectMembership.ROLE_ADMIN
+    visible_reports = [report for report in project.reports.all() if _user_can_access_report(report, user)]
     return {
         "id": project.id,
         "dbId": project.id,
@@ -160,8 +204,8 @@ def _serialize_project(project, user):
         "canShare": can_share,
         "canDelete": project.owner_id == user.id,
         "isOwned": project.owner_id == user.id,
-        "members": _serialize_members(project),
-        "reports": [_serialize_report(report) for report in project.reports.all()],
+        "members": _serialize_project_members(project),
+        "reports": [_serialize_report(report, user) for report in visible_reports],
     }
 
 
@@ -171,6 +215,13 @@ def _get_project_or_404(user, slug):
 
 def _get_report_or_404(project, report_id):
     return get_object_or_404(project.reports.all(), pk=report_id)
+
+
+def _get_user_report_or_404(project, user, report_id):
+    report = _get_report_or_404(project, report_id)
+    if not _user_can_access_report(report, user):
+        raise Http404()
+    return report
 
 
 def _apply_report_payload(report, payload, files=None):
@@ -347,16 +398,16 @@ def project_reports_api(request, project_slug):
     _apply_report_payload(report, payload, request.FILES)
     report.save()
     project = _get_project_or_404(request.user, project.slug)
-    report = _get_report_or_404(project, report.id)
-    return JsonResponse({"report": _serialize_report(report)}, status=201)
+    report = _get_user_report_or_404(project, request.user, report.id)
+    return JsonResponse({"report": _serialize_report(report, request.user)}, status=201)
 
 
 @login_required
 @require_http_methods(["POST"])
 def project_report_update_api(request, project_slug, report_id):
     project = _get_project_or_404(request.user, project_slug)
-    report = _get_report_or_404(project, report_id)
-    if not _can_edit_project(project, request.user):
+    report = _get_user_report_or_404(project, request.user, report_id)
+    if not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para editar este reporte."}, status=403)
 
     payload = _request_data(request)
@@ -364,15 +415,15 @@ def project_report_update_api(request, project_slug, report_id):
         return HttpResponseBadRequest("Datos inválidos")
     _apply_report_payload(report, payload, request.FILES)
     report.save()
-    return JsonResponse({"report": _serialize_report(report)})
+    return JsonResponse({"report": _serialize_report(report, request.user)})
 
 
 @login_required
 @require_http_methods(["DELETE"])
 def project_report_detail_api(request, project_slug, report_id):
     project = _get_project_or_404(request.user, project_slug)
-    report = _get_report_or_404(project, report_id)
-    if not _can_edit_project(project, request.user):
+    report = _get_user_report_or_404(project, request.user, report_id)
+    if not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para eliminar este reporte."}, status=403)
     report.delete()
     return JsonResponse({"ok": True})
@@ -380,10 +431,43 @@ def project_report_detail_api(request, project_slug, report_id):
 
 @login_required
 @require_http_methods(["POST"])
+def report_members_api(request, project_slug, report_id):
+    project = _get_project_or_404(request.user, project_slug)
+    report = _get_user_report_or_404(project, request.user, report_id)
+    if not _can_share_report(report, request.user):
+        return JsonResponse({"error": "No tienes permisos para compartir este reporte."}, status=403)
+
+    payload = _parse_json(request)
+    if payload is None:
+        return HttpResponseBadRequest("JSON inválido")
+
+    username = (payload.get("username") or "").strip()
+    role = (payload.get("role") or ProjectMembership.ROLE_VIEWER).strip()
+    if not username:
+        return JsonResponse({"error": "Debes indicar el usuario a invitar."}, status=400)
+    if role not in dict(ProjectMembership.ROLE_CHOICES):
+        return JsonResponse({"error": "Rol no válido."}, status=400)
+
+    invitee = get_object_or_404(User, username=username)
+    if invitee.id == project.owner_id:
+        return JsonResponse({"error": "El propietario ya tiene acceso total."}, status=400)
+
+    ReportMembership.objects.update_or_create(
+        report=report,
+        user=invitee,
+        defaults={"role": role},
+    )
+    project = _get_project_or_404(request.user, project.slug)
+    report = _get_user_report_or_404(project, request.user, report.id)
+    return JsonResponse({"members": _serialize_report_members(report)})
+
+
+@login_required
+@require_http_methods(["POST"])
 def report_fronts_api(request, project_slug, report_id):
     project = _get_project_or_404(request.user, project_slug)
-    report = _get_report_or_404(project, report_id)
-    if not _can_edit_project(project, request.user):
+    report = _get_user_report_or_404(project, request.user, report_id)
+    if not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para editar este reporte."}, status=403)
 
     payload = _parse_json(request)
@@ -401,8 +485,8 @@ def report_fronts_api(request, project_slug, report_id):
 @require_http_methods(["DELETE"])
 def report_front_detail_api(request, project_slug, report_id, front_id):
     project = _get_project_or_404(request.user, project_slug)
-    report = _get_report_or_404(project, report_id)
-    if not _can_edit_project(project, request.user):
+    report = _get_user_report_or_404(project, request.user, report_id)
+    if not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para eliminar frentes en este reporte."}, status=403)
     front = get_object_or_404(report.fronts.all(), pk=front_id)
     front.delete()
@@ -413,8 +497,8 @@ def report_front_detail_api(request, project_slug, report_id, front_id):
 @require_http_methods(["POST"])
 def report_entries_api(request, project_slug, report_id):
     project = _get_project_or_404(request.user, project_slug)
-    report = _get_report_or_404(project, report_id)
-    if not _can_edit_project(project, request.user):
+    report = _get_user_report_or_404(project, request.user, report_id)
+    if not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para crear issues en este reporte."}, status=403)
 
     payload = _request_data(request)
@@ -437,9 +521,9 @@ def report_entries_api(request, project_slug, report_id):
 @require_http_methods(["POST", "DELETE"])
 def report_entry_detail_api(request, project_slug, report_id, entry_id):
     project = _get_project_or_404(request.user, project_slug)
-    report = _get_report_or_404(project, report_id)
+    report = _get_user_report_or_404(project, request.user, report_id)
     entry = get_object_or_404(report.entries.prefetch_related("images"), pk=entry_id)
-    if not _can_edit_project(project, request.user):
+    if not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para modificar este issue."}, status=403)
 
     if request.method == "DELETE":

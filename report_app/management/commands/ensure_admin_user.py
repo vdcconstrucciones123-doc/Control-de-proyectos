@@ -1,6 +1,7 @@
 import os
 
 from django.contrib.auth import get_user_model
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
 
@@ -11,6 +12,12 @@ class Command(BaseCommand):
         username = os.getenv("DJANGO_SUPERUSER_USERNAME", "").strip()
         password = os.getenv("DJANGO_SUPERUSER_PASSWORD", "").strip()
         email = os.getenv("DJANGO_SUPERUSER_EMAIL", "").strip()
+        allow_default_admin = os.getenv("ALLOW_DEFAULT_ADMIN", "").strip().lower() in {"1", "true", "yes"}
+
+        if not username and not password and (settings.DEBUG or allow_default_admin):
+            username = "ADMIN"
+            password = "ADMIN"
+            email = email or "admin@example.com"
 
         if not username or not password:
             self.stdout.write(

@@ -87,6 +87,7 @@ http://127.0.0.1:8000/
 - `DATABASE_URL`
 - `CLOUDINARY_URL` o alternativamente `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
 - `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD` para crear o actualizar un admin automático en deploy
+- `ALLOW_DEFAULT_ADMIN=True` si quieres forzar temporalmente un admin por defecto `ADMIN` / `ADMIN` sin definir las variables anteriores
 
 Ejemplo local opcional:
 
@@ -144,6 +145,9 @@ DJANGO_SUPERUSER_PASSWORD=tu_clave_segura
 ```
 
 `build.sh` ejecuta `python manage.py ensure_admin_user` después de `migrate`. Si esas variables no existen, no falla el deploy: simplemente no crea nada.
+
+Respaldo temporal:
+Si estás en local con `DEBUG=True`, o si defines `ALLOW_DEFAULT_ADMIN=True`, el comando crea o actualiza un usuario `ADMIN` con contraseña `ADMIN`. Úsalo sólo como salida temporal y quítalo en producción cuando ya tengas tus credenciales reales.
 
 ## Estructura que sí usa Django
 

@@ -8,7 +8,7 @@ from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
-from report_app.models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportProject
+from report_app.models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportMembership, ReportProject
 
 
 class HomeViewTests(TestCase):
@@ -21,8 +21,8 @@ class HomeViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Site Audit Pro Lite")
-        self.assertContains(response, "Crea tu proyecto")
-        self.assertContains(response, "Exportar PDF")
+        self.assertContains(response, "Proyectos")
+        self.assertContains(response, "Nuevo proyecto")
 
     def test_new_project_route_enables_project_form_mode(self):
         response = self.client.get(reverse("proyecto_nuevo"))
@@ -182,6 +182,35 @@ class ProjectApiTests(TestCase):
         project.refresh_from_db()
         self.assertEqual(project.project_name, "Proyecto Editado")
         self.assertEqual(share_response.status_code, 403)
+
+    def test_owner_can_share_single_report(self):
+        project = ReportProject.objects.create(owner=self.owner, company_name="VDC", project_name="Proyecto Reporte")
+        report = ProjectReport.objects.create(project=project, title="Reporte 1")
+
+        response = self.client.post(
+            reverse("report_members_api", args=[project.slug, report.id]),
+            data='{"username":"viewer","role":"viewer"}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        membership = ReportMembership.objects.get(report=report, user=self.viewer)
+        self.assertEqual(membership.role, ProjectMembership.ROLE_VIEWER)
+
+    def test_report_shared_user_sees_only_shared_report(self):
+        project = ReportProject.objects.create(owner=self.owner, company_name="VDC", project_name="Proyecto Filtrado")
+        visible_report = ProjectReport.objects.create(project=project, title="Reporte Visible")
+        ProjectReport.objects.create(project=project, title="Reporte Oculto")
+        ReportMembership.objects.create(report=visible_report, user=self.viewer, role=ProjectMembership.ROLE_VIEWER)
+        self.client.force_login(self.viewer)
+
+        response = self.client.get(reverse("project_collection_api"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["projects"]
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(len(payload[0]["reports"]), 1)
+        self.assertEqual(payload[0]["reports"][0]["title"], "Reporte Visible")
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())

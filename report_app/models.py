@@ -94,6 +94,20 @@ class ProjectReport(models.Model):
         return self.title or f"Reporte {self.pk}"
 
 
+class ReportMembership(models.Model):
+    report = models.ForeignKey(ProjectReport, on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="report_memberships")
+    role = models.CharField(max_length=20, choices=ProjectMembership.ROLE_CHOICES, default=ProjectMembership.ROLE_VIEWER)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("report", "user")
+        ordering = ["report_id", "user__username"]
+
+    def __str__(self):
+        return f"{self.report} · {self.user} · {self.role}"
+
+
 class ReportFront(models.Model):
     report = models.ForeignKey(ProjectReport, on_delete=models.CASCADE, related_name="fronts")
     name = models.CharField(max_length=200)
