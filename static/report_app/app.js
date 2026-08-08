@@ -1,5 +1,11 @@
 (function(){
-  const storageKey = 'siteAuditLite_v1';
+  const currentUser = document.body?.dataset?.currentUser || 'guest';
+  const storageKey = `siteAuditLite_v1_${currentUser}`;
+  const PROJECT_ROLE_LABELS = {
+    viewer: 'Lector',
+    editor: 'Editor',
+    admin: 'Administrador'
+  };
   const FRONT_TEMPLATE = [
     'Fachada Norte', 'Fachada Sur', 'Fachada Este', 'Fachada Oeste',
     'Estacionamiento', 'Accesos principales', 'Área común', 'Instalaciones',
@@ -15,6 +21,7 @@
   const PDF_IMAGE_QUALITY = 0.82;
   const UPLOAD_MAX_DIMENSION = 1800;
   const UPLOAD_IMAGE_QUALITY = 0.8;
+  let pendingCoverPhotoFile = null;
 
   let state = {
     projects: [],
@@ -56,6 +63,114 @@
   };
 
   function $(id){ return document.getElementById(id); }
+  function getCsrfToken(){
+    return document.cookie.split('; ').find(row => row.startsWith('csrftoken='))?.split('=')[1] || '';
+  }
+  async function requestJson(url, options = {}){
+    const isFormData = options.body instanceof FormData;
+    const headers = {
+      'X-CSRFToken': getCsrfToken(),
+      ...(options.headers || {})
+    };
+    if(!isFormData && !headers['Content-Type']){
+      headers['Content-Type'] = 'application/json';
+    }
+    const response = await fetch(url, {
+      credentials: 'same-origin',
+      headers,
+      ...options
+    });
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : {};
+    if(!response.ok){
+      throw new Error(data.error || 'No se pudo completar la operación.');
+    }
+    return data;
+  }
+  function mergeServerProject(serverProject){
+    const existing = state.projects.find(project => project.slug === serverProject.slug || project.dbId === serverProject.id);
+    if(existing){
+      const currentReportId = existing.currentReportId || state.currentReportId || null;
+      Object.assign(existing, serverProject);
+      existing.currentReportId = currentReportId && existing.reports?.some(report => report.id === currentReportId)
+        ? currentReportId
+        : existing.reports?.[0]?.id || null;
+      return existing;
+    }
+    const nextProject = { ...serverProject, currentReportId: serverProject.reports?.[0]?.id || null };
+    state.projects.push(nextProject);
+    return nextProject;
+  }
+  function mergeServerReport(project, serverReport){
+    project.reports = project.reports || [];
+    const index = project.reports.findIndex(report => report.id === serverReport.id);
+    if(index >= 0){
+      project.reports[index] = { ...project.reports[index], ...serverReport };
+    } else {
+      project.reports.push(serverReport);
+    }
+    project.currentReportId = serverReport.id;
+    state.currentReportId = serverReport.id;
+    return project.reports.find(report => report.id === serverReport.id);
+  }
+  async function createReportRemote(project, formData){
+    const data = await requestJson(`/api/projects/${project.slug}/reports/`, { method: 'POST', body: formData });
+    return data.report;
+  }
+  async function updateReportRemote(project, reportId, formData){
+    const data = await requestJson(`/api/projects/${project.slug}/reports/${reportId}/update/`, { method: 'POST', body: formData });
+    return data.report;
+  }
+  async function deleteReportRemote(project, reportId){
+    await requestJson(`/api/projects/${project.slug}/reports/${reportId}/`, { method: 'DELETE' });
+  }
+  async function createFrontRemote(project, reportId, name){
+    const data = await requestJson(`/api/projects/${project.slug}/reports/${reportId}/fronts/`, { method: 'POST', body: JSON.stringify({ name }) });
+    return data.front;
+  }
+  async function deleteFrontRemote(project, reportId, frontId){
+    await requestJson(`/api/projects/${project.slug}/reports/${reportId}/fronts/${frontId}/`, { method: 'DELETE' });
+  }
+  async function createEntryRemote(project, reportId, formData){
+    const data = await requestJson(`/api/projects/${project.slug}/reports/${reportId}/entries/`, { method: 'POST', body: formData });
+    return data.entry;
+  }
+  async function updateEntryRemote(project, reportId, entryId, formData){
+    const data = await requestJson(`/api/projects/${project.slug}/reports/${reportId}/entries/${entryId}/`, { method: 'POST', body: formData });
+    return data.entry;
+  }
+  async function deleteEntryRemote(project, reportId, entryId){
+    await requestJson(`/api/projects/${project.slug}/reports/${reportId}/entries/${entryId}/`, { method: 'DELETE' });
+  }
+  async function fetchProjectsFromServer(){
+    try {
+      const data = await requestJson('/api/projects/', { method: 'GET' });
+      const remoteProjects = Array.isArray(data.projects) ? data.projects : [];
+      state.projects = remoteProjects.map(project => ({ ...project, currentReportId: project.currentReportId || project.reports?.[0]?.id || null }));
+      save();
+      renderAll();
+      updateSelectionScreenSections();
+      syncViewWithCurrentRoute();
+    } catch (error) {
+      console.warn('No se pudieron cargar los proyectos del servidor', error);
+    }
+  }
+  async function createProjectRemote(payload){
+    const data = await requestJson('/api/projects/', { method: 'POST', body: JSON.stringify(payload) });
+    return data.project;
+  }
+  async function updateProjectRemote(project, payload){
+    const data = await requestJson(`/api/projects/${project.slug}/`, { method: 'PATCH', body: JSON.stringify(payload) });
+    return data.project;
+  }
+  async function deleteProjectRemote(project){
+    if(!project?.slug) return;
+    await requestJson(`/api/projects/${project.slug}/`, { method: 'DELETE' });
+  }
+  async function shareProjectRemote(project, payload){
+    const data = await requestJson(`/api/projects/${project.slug}/members/`, { method: 'POST', body: JSON.stringify(payload) });
+    return data;
+  }
   function save(){
     const isCreatingNewProject = state.selectionStage === 'project' && state.showProjectForm && state.currentProjectId === null;
     if(!isCreatingNewProject){
@@ -246,19 +361,19 @@
     return slug;
   }
 
-  function createProject(name, location, slug, routeOptions = {}){
-    const id = generateProjectId();
-    const project = {
-      id,
+  async function createProject(name, location, slug, routeOptions = {}){
+    const remoteProject = await createProjectRemote({
       companyName: state.companyName,
       projectName: name || `Proyecto ${state.projects.length + 1}`,
       projectLocation: location || '',
-      // slug legible para URLs: proyecto1, proyecto2, ... (acepta slug opcional)
       slug: slug || generateUniqueSlug('proyecto'),
-      reports: []
-    };
-    state.projects.push(project);
-    state.currentProjectId = id;
+      reportTitle: state.reportTitle,
+      forWhom: state.forWhom,
+      fromWhom: state.fromWhom,
+    });
+    const project = mergeServerProject(remoteProject);
+    project.reports = project.reports || [];
+    state.currentProjectId = project.id;
     state.currentReportId = null;
     state.selectionStage = 'reportType';
     state.showProjectForm = false;
@@ -334,7 +449,11 @@
     setProjectRoute(project);
   }
 
-  function deleteProject(id){
+  async function deleteProject(id){
+    const currentProject = getProjectById(id);
+    if(currentProject?.dbId){
+      await deleteProjectRemote(currentProject);
+    }
     const wasCurrent = id === state.currentProjectId;
     state.projects = state.projects.filter(p => p.id !== id);
     if(wasCurrent){
@@ -360,10 +479,11 @@
     }
   }
 
-  function deleteReport(reportId){
+  async function deleteReport(reportId){
     const project = getCurrentProject();
     if(!project || !project.reports?.length) return;
     if(!confirm('¿Eliminar este reporte? Esta acción no se puede deshacer.')) return;
+    await deleteReportRemote(project, reportId);
     project.reports = project.reports.filter(r => r.id !== reportId);
     if(state.currentReportId === reportId){
       state.currentReportId = project.reports.length ? project.reports[0].id : null;
@@ -489,7 +609,8 @@
 
   function canEditProjectFromCurrentRoute(){
     const routeInfo = getRouteInfo();
-    return !!routeInfo.onProjectPath;
+    const current = getCurrentProject();
+    return !!routeInfo.onProjectPath && !!current?.canEdit;
   }
 
   function isOnNewReportRoute(){
@@ -786,12 +907,7 @@
             restoreReportDraftState(draftState);
           }
         } else {
-          // Construir un nombre legible desde el slug
-          let human = initSlug.replace(/[-_]/g, ' ').replace(/^proyecto\s*/i, 'Proyecto ');
-          human = human.replace(/\b\w/g, c => c.toUpperCase()).trim();
-          if(!human) human = `Proyecto ${state.projects.length + 1}`;
-          // Crear proyecto local con el slug proporcionado
-          createProject(human, '', initSlug, { replace: true });
+          state.currentProjectId = null;
         }
         save();
       }
@@ -890,21 +1006,49 @@
   function findFrontByName(name){ const key = normalizeName(cleanFrontName(name)); return state.fronts.find(f => normalizeName(f.name) === key); }
   function findDuplicateGroups(){ const map = {}; state.fronts.forEach(f => { const key = normalizeName(f.name); if(!map[key]) map[key] = []; map[key].push(f); }); return Object.values(map).filter(g => g.length > 1); }
 
-  function addFront(name, opts){
+  async function addFront(name, opts){
     const cleanedName = cleanFrontName(name) || name.trim();
     if(!cleanedName) return false;
+    const project = getCurrentProject();
+    if(!project || !state.currentReportId){
+      alert('Primero crea o abre un reporte antes de agregar frentes.');
+      return false;
+    }
     const existing = findFrontByName(cleanedName);
     const autoMerge = opts?.autoMerge ?? state.autoMergeDup;
     if(existing){ if(autoMerge) return true; if(confirm(`Ya existe el frente "${existing.name}". ¿Fusionar con el existente?`)) return true; return false; }
     const finalName = cleanedName || `Frente ${state.fronts.length + 1}`;
-    state.fronts.push({ id: Date.now() + Math.random(), name: finalName });
+    const front = await createFrontRemote(project, state.currentReportId, finalName);
+    state.fronts.push(front);
+    const report = getCurrentReport();
+    if(report) report.fronts = [...state.fronts];
     save(); renderAll(); return true;
   }
 
   function getEntryById(id){ return state.entries.find(e => e.id === id); }
   function getFrontName(frontId){ const front = state.fronts.find(f => f.id === frontId); return front ? front.name : 'Frente eliminado'; }
-  function removeFront(id){ state.fronts = state.fronts.filter(f => f.id !== id); state.entries = state.entries.filter(e => e.frontId !== id); save(); renderAll(); }
-  function removeEntry(id){ state.entries = state.entries.filter(e => e.id !== id); if(state.editingEntryId === id){ resetEntryEditor(); } save(); renderAll(); }
+  async function removeFront(id){
+    const project = getCurrentProject();
+    if(project && state.currentReportId){
+      await deleteFrontRemote(project, state.currentReportId, id);
+    }
+    state.fronts = state.fronts.filter(f => f.id !== id);
+    state.entries = state.entries.filter(e => e.frontId !== id);
+    const report = getCurrentReport();
+    if(report){ report.fronts = [...state.fronts]; report.entries = [...state.entries]; }
+    save(); renderAll();
+  }
+  async function removeEntry(id){
+    const project = getCurrentProject();
+    if(project && state.currentReportId){
+      await deleteEntryRemote(project, state.currentReportId, id);
+    }
+    state.entries = state.entries.filter(e => e.id !== id);
+    const report = getCurrentReport();
+    if(report) report.entries = [...state.entries];
+    if(state.editingEntryId === id){ resetEntryEditor(); }
+    save(); renderAll();
+  }
   function clearEntryPhotoInputs(){ if($('photoInput')) $('photoInput').value = ''; if($('photoCameraInput')) $('photoCameraInput').value = ''; }
   function getEntryPhotoFiles(){ return [...($('photoInput')?.files ? Array.from($('photoInput').files) : []), ...($('photoCameraInput')?.files ? Array.from($('photoCameraInput').files) : [])]; }
   function resetEntryEditor(){ state.editingEntryId = null; state.showIssueForm = false; $('addEntryBtn').textContent = 'Agregar issue'; $('cancelEntryEditBtn').classList.add('d-none'); clearEntryPhotoInputs(); $('entryDesc').value = ''; const frontId = Number($('selectFront').value); if(frontId){ $('selectFront').value = frontId; } $('selectFront').disabled = false; }
@@ -1278,10 +1422,14 @@
     const editName = $('editProjectName');
     const editLocation = $('editProjectLocation');
     const editProjectInfoBtn = $('editProjectInfoBtn');
+    const projectSharingCard = $('projectSharingCard');
+    const projectShareForm = $('projectShareForm');
+    const projectMembersList = $('projectMembersList');
+    const projectAccessBadge = $('projectAccessBadge');
     const current = getCurrentProject();
     const routeInfo = getRouteInfo();
     const isReportRoute = !!(routeInfo.onNewReportPath || routeInfo.onReportPath);
-    const canEditProject = !!(routeInfo.onProjectPath && !isReportRoute);
+    const canEditProject = !!(routeInfo.onProjectPath && !isReportRoute && current?.canEdit);
 
     if(current && state.currentProjectId){
       if(isReportRoute){
@@ -1298,6 +1446,15 @@
       if(editCompany) editCompany.value = state.companyName || current.companyName || 'VDC CONSTRUCCIONES SAC';
       if(editName) editName.value = state.projectName || current.projectName || '';
       if(editLocation) editLocation.value = state.projectLocation || current.projectLocation || '';
+      if(projectSharingCard) projectSharingCard.classList.remove('d-none');
+      if(projectShareForm) projectShareForm.classList.toggle('d-none', !current.canShare);
+      if(projectAccessBadge) projectAccessBadge.textContent = `${PROJECT_ROLE_LABELS[current.accessRole] || 'Sin acceso'}${current.isOwned ? ' · Propietario' : ''}`;
+      if(projectMembersList){
+        const members = Array.isArray(current.members) ? current.members : [];
+        projectMembersList.innerHTML = members.length
+          ? members.map(member => `<div class="project-member-item"><div><div class="project-member-name">${escapeHtml(member.username)}</div><div class="project-member-meta">${member.isOwner ? 'Propietario' : PROJECT_ROLE_LABELS[member.role] || member.role}</div></div><span class="badge text-bg-light">${member.isOwner ? 'Owner' : (PROJECT_ROLE_LABELS[member.role] || member.role)}</span></div>`).join('')
+          : '<div class="text-muted small">Sin miembros compartidos todavía.</div>';
+      }
     } else {
       if(selectGroup) selectGroup.classList.remove('d-none');
       if(displayGroup) displayGroup.classList.add('d-none');
@@ -1310,6 +1467,9 @@
       if(editCompany) editCompany.value = '';
       if(editName) editName.value = '';
       if(editLocation) editLocation.value = '';
+      if(projectSharingCard) projectSharingCard.classList.add('d-none');
+      if(projectMembersList) projectMembersList.innerHTML = '';
+      if(projectAccessBadge) projectAccessBadge.textContent = '';
     }
   }
   function renderSelectionReportList(){ const section = $('selectionReportListSection'); const list = $('selectionReportList'); if(!section || !list) return; const project = getCurrentProject(); if(!project || state.selectionStage !== 'reportType'){ section.classList.add('d-none'); return; } section.classList.remove('d-none'); const reports = project.reports || []; if(!reports.length){ list.innerHTML = '<div class="text-muted small mb-0">Aún no hay reportes creados para este proyecto.</div>'; return; } list.innerHTML = reports.map(report => { const active = report.id === state.currentReportId ? 'active' : ''; return `<div class="list-group-item d-flex justify-content-between align-items-center ${active}"><button type="button" data-id="${report.id}" class="btn btn-link p-0 text-start flex-grow-1 report-select-btn">${escapeHtml(report.title || 'Reporte sin título')}</button><button type="button" data-delete-id="${report.id}" class="btn btn-sm btn-outline-danger ms-2">Eliminar</button></div>`; }).join(''); }
@@ -1503,8 +1663,8 @@
       const active = project.id === state.currentProjectId ? 'btn-primary' : 'btn-light';
       return `
         <div class="d-flex gap-2">
-          <button type="button" data-id="${project.id}" class="btn ${active} text-start flex-grow-1 project-select-btn">${escapeHtml(project.projectName || 'Proyecto sin nombre')}</button>
-          <button type="button" data-id="${project.id}" class="btn btn-outline-danger btn-sm project-delete-btn" title="Eliminar proyecto">×</button>
+          <button type="button" data-id="${project.id}" class="btn ${active} text-start flex-grow-1 project-select-btn">${escapeHtml(project.projectName || 'Proyecto sin nombre')}<div class="small opacity-75">${project.isOwned ? 'Propio' : `Compartido · ${escapeHtml(PROJECT_ROLE_LABELS[project.accessRole] || 'Acceso')}`}</div></button>
+          ${project.canDelete ? `<button type="button" data-id="${project.id}" class="btn btn-outline-danger btn-sm project-delete-btn" title="Eliminar proyecto">×</button>` : ''}
         </div>
       `;
     }).join('');
@@ -1531,7 +1691,7 @@
   }
 
   function bindEvents(){
-    $('createProjectBtn').addEventListener('click', () => {
+    $('createProjectBtn').addEventListener('click', async () => {
       const company = $('companyName').value.trim() || 'VDC CONSTRUCCIONES SAC';
       const projectName = $('projectName').value.trim();
       const projectLocation = $('projectLocation').value.trim();
@@ -1543,12 +1703,23 @@
       if(state.currentProjectId && state.showProjectForm){
         const current = getCurrentProject();
         if(!current) return;
-        state.companyName = company;
-        state.projectName = projectName;
-        state.projectLocation = projectLocation;
-        current.companyName = company;
-        current.projectName = projectName;
-        current.projectLocation = projectLocation;
+        try {
+          const remoteProject = await updateProjectRemote(current, {
+            companyName: company,
+            projectName,
+            projectLocation,
+            reportTitle: state.reportTitle,
+            forWhom: state.forWhom,
+            fromWhom: state.fromWhom,
+          });
+          state.companyName = company;
+          state.projectName = projectName;
+          state.projectLocation = projectLocation;
+          Object.assign(current, remoteProject, { reports: current.reports || [] });
+        } catch (error) {
+          alert(error.message);
+          return;
+        }
         state.showProjectForm = false;
         state.selectionStage = 'reportType';
         save();
@@ -1562,7 +1733,11 @@
       state.companyName = company;
       state.projectName = projectName;
       state.projectLocation = projectLocation;
-      createProject(projectName, projectLocation);
+      try {
+        await createProject(projectName, projectLocation);
+      } catch (error) {
+        alert(error.message);
+      }
       updateSelectionScreenSections();
     });
     $('selectedProjectInfo')?.addEventListener('click', e => {
@@ -1620,7 +1795,7 @@
       if(deleteBtn){
         const id = Number(deleteBtn.dataset.id);
         if(id && confirm('¿Eliminar este proyecto? Esta acción no se puede deshacer.')){
-          deleteProject(id);
+          deleteProject(id).catch(error => alert(error.message));
         }
         return;
       }
@@ -1698,7 +1873,7 @@
       const deleteButton = e.target.closest('button[data-delete-id]');
       if(deleteButton){
         const reportId = Number(deleteButton.dataset.deleteId);
-        if(reportId) deleteReport(reportId);
+        if(reportId) deleteReport(reportId).catch(error => alert(error.message));
         return;
       }
       const button = e.target.closest('button[data-id]');
@@ -1722,7 +1897,7 @@
       const deleteButton = e.target.closest('button[data-delete-id]');
       if(deleteButton){
         const reportId = Number(deleteButton.dataset.deleteId);
-        if(reportId) deleteReport(reportId);
+        if(reportId) deleteReport(reportId).catch(error => alert(error.message));
         return;
       }
       const button = e.target.closest('button[data-id]');
@@ -1742,7 +1917,7 @@
       setReportRoute(project, reportId);
       renderAll();
     });
-    $('continueToEditorBtn')?.addEventListener('click', () => {
+    $('continueToEditorBtn')?.addEventListener('click', async () => {
       const reportType = $('metadataReportType')?.value;
       if(!reportType){
         alert('Selecciona el tipo de reporte antes de continuar.');
@@ -1754,46 +1929,45 @@
       }
       const project = getCurrentProject();
       if(!project) return;
-      let report = getCurrentReport();
-      if(!report){
-        const id = generateProjectId();
-        const defaultTitle = reportType === 'incidencia'
-          ? 'REPORTE DE INCIDENCIA'
-          : 'REPORTE DE AVANCES';
-        report = {
-          id,
-          type: reportType,
-          title: defaultTitle,
-          week: state.reportWeek || '8',
-          date: state.reportDate || new Date().toISOString().slice(0, 10),
-          forWhom: state.forWhom || '',
-          fromWhom: state.fromWhom || '',
-          objectiveText: state.objectiveText || '',
-          analysisText: state.analysisText || '',
-          conclusionText: state.conclusionText || '',
-          recommendationText: state.recommendationText || '',
-          conclusionItems: [...state.conclusionItems],
-          recommendationItems: [...state.recommendationItems],
-          laborDateFrom: state.laborDateFrom || '',
-          laborDateTo: state.laborDateTo || '',
-          coverImage: state.coverImage || '',
-          fronts: [...state.fronts],
-          entries: [...state.entries],
-          autoMergeDup: state.autoMergeDup,
-          combineByStatus: state.combineByStatus,
-          editingEntryId: state.editingEntryId,
-          currentFrontId: state.currentFrontId,
-          metaComplete: true
-        };
-        project.reports = project.reports || [];
-        project.reports.push(report);
-        state.currentReportId = id;
-        project.currentReportId = id;
+      const formData = new FormData();
+      const defaultTitle = reportType === 'incidencia'
+        ? 'REPORTE DE INCIDENCIA'
+        : 'REPORTE DE AVANCES';
+      formData.append('reportType', reportType);
+      formData.append('reportTitle', state.reportTitle || defaultTitle);
+      formData.append('reportWeek', state.reportWeek || '8');
+      formData.append('reportDate', state.reportDate || new Date().toISOString().slice(0, 10));
+      formData.append('laborDateFrom', state.laborDateFrom || '');
+      formData.append('laborDateTo', state.laborDateTo || '');
+      formData.append('forWhom', state.forWhom || '');
+      formData.append('fromWhom', state.fromWhom || '');
+      formData.append('objectiveText', state.objectiveText || '');
+      formData.append('analysisText', state.analysisText || '');
+      formData.append('conclusionText', state.conclusionText || '');
+      formData.append('recommendationText', state.recommendationText || '');
+      formData.append('conclusionItems', JSON.stringify(state.conclusionItems || []));
+      formData.append('recommendationItems', JSON.stringify(state.recommendationItems || []));
+      formData.append('autoMergeDup', String(!!state.autoMergeDup));
+      formData.append('combineByStatus', String(!!state.combineByStatus));
+      if(pendingCoverPhotoFile){
+        formData.append('coverPhoto', pendingCoverPhotoFile);
+      }
+      let report;
+      try {
+        const serverReport = state.currentReportId
+          ? await updateReportRemote(project, state.currentReportId, formData)
+          : await createReportRemote(project, formData);
+        report = mergeServerReport(project, serverReport);
+        pendingCoverPhotoFile = null;
+      } catch (error) {
+        alert(error.message);
+        return;
       }
       state.reportType = reportType;
       state.reportMetaComplete = true;
       state.existingReportOpen = true;
       state.editingReportMeta = false;
+      loadProject(project);
       save();
       setReportRoute(project, state.currentReportId);
       renderAll();
@@ -1833,13 +2007,36 @@
       const name = prompt('Nombre del proyecto:', `Proyecto ${state.projects.length + 1}`);
       if(!name) return;
       const location = prompt('Ubicación del proyecto:','');
-      createProject(name.trim(), location ? location.trim() : '');
+      createProject(name.trim(), location ? location.trim() : '').catch(error => alert(error.message));
     });
     $('newProjectBtnDisplay')?.addEventListener('click', () => {
       const name = prompt('Nombre del proyecto:', `Proyecto ${state.projects.length + 1}`);
       if(!name) return;
       const location = prompt('Ubicación del proyecto:','');
-      createProject(name.trim(), location ? location.trim() : '');
+      createProject(name.trim(), location ? location.trim() : '').catch(error => alert(error.message));
+    });
+    $('shareProjectBtn')?.addEventListener('click', async () => {
+      const current = getCurrentProject();
+      if(!current?.canShare){
+        alert('No tienes permisos para compartir este proyecto.');
+        return;
+      }
+      const username = $('shareUsername')?.value.trim();
+      const role = $('shareRole')?.value || 'viewer';
+      if(!username){
+        alert('Ingresa el usuario que quieres invitar.');
+        $('shareUsername')?.focus();
+        return;
+      }
+      try {
+        const data = await shareProjectRemote(current, { username, role });
+        current.members = Array.isArray(data.members) ? data.members : current.members;
+        save();
+        renderAll();
+        $('shareUsername').value = '';
+      } catch (error) {
+        alert(error.message);
+      }
     });
     $('projectSelect').addEventListener('change', e => {
       const id = Number(e.target.value);
@@ -1880,6 +2077,7 @@
     });
     $('coverPhotoInput').addEventListener('change', async () => {
       const file = $('coverPhotoInput').files[0];
+      pendingCoverPhotoFile = file || null;
       if(!file){ state.coverImage = ''; save(); renderReport(); return; }
       const optimizedImage = await optimizeImageFile(file);
       state.coverImage = optimizedImage;
@@ -1887,48 +2085,55 @@
     });
     $('takePhotoBtn')?.addEventListener('click', () => $('photoCameraInput')?.click());
     $('choosePhotoBtn')?.addEventListener('click', () => $('photoInput')?.click());
-    $('addFrontBtn').addEventListener('click', () => { const name = $('frontName').value; if(addFront(name)) $('frontName').value = ''; });
+    $('addFrontBtn').addEventListener('click', async () => {
+      const name = $('frontName').value;
+      try {
+        if(await addFront(name)) $('frontName').value = '';
+      } catch (error) {
+        alert(error.message);
+      }
+    });
     $('openIssueFormBtn')?.addEventListener('click', () => { if(state.currentFrontId){ resetEntryEditor(); state.showIssueForm = true; state.selectedEntryId = null; save(); renderAll(); $('entryDesc')?.focus(); } });
     document.querySelectorAll('.togglePreviewBtn').forEach(btn => btn.addEventListener('click', () => { state.showPreviewMode = !state.showPreviewMode; save(); renderAll(); }));
     $('combineByStatus').addEventListener('change', e => { state.combineByStatus = e.target.checked; save(); renderReport(); });
     $('backToFrontListBtn')?.addEventListener('click', () => { const project = getCurrentProject(); state.currentFrontId = null; state.showIssueForm = false; state.selectedEntryId = null; state.editingEntryId = null; save(); if(project && state.currentReportId){ setReportRoute(project, state.currentReportId); } renderAll(); });
     $('cancelEntryEditBtn').addEventListener('click', () => { resetEntryEditor(); save(); renderAll(); });
-    $('addEntryBtn').addEventListener('click', () => {
+    $('addEntryBtn').addEventListener('click', async () => {
       const frontId = Number($('selectFront').value);
       const status = $('statusSelect').value;
       const desc = $('entryDesc').value;
       const files = getEntryPhotoFiles();
-      const finalize = (nextImages) => {
+      const project = getCurrentProject();
+      if(!project || !state.currentReportId){
+        alert('Primero guarda el reporte antes de registrar issues.');
+        return;
+      }
+      const formData = new FormData();
+      formData.append('frontId', String(frontId));
+      formData.append('status', status);
+      formData.append('desc', desc);
+      if(state.editingEntryId != null && files.length){
+        formData.append('replaceImages', 'true');
+      }
+      files.forEach(file => formData.append('images', file));
+      try {
+        const serverEntry = state.editingEntryId != null
+          ? await updateEntryRemote(project, state.currentReportId, state.editingEntryId, formData)
+          : await createEntryRemote(project, state.currentReportId, formData);
         if(state.editingEntryId != null){
-          const existing = getEntryById(state.editingEntryId);
-          if(existing){
-            existing.status = status;
-            existing.desc = desc;
-            existing.images = nextImages.length ? nextImages : (existing.images || []);
-            existing.ts = new Date().toISOString();
-            save(); renderAll();
+          const existingIndex = state.entries.findIndex(entry => entry.id === state.editingEntryId);
+          if(existingIndex >= 0){
+            state.entries[existingIndex] = serverEntry;
           }
         } else {
-          addEntry(frontId, status, desc, nextImages);
+          state.entries.push(serverEntry);
         }
+        const report = getCurrentReport();
+        if(report) report.entries = [...state.entries];
         resetEntryEditor();
         save(); renderAll();
-      };
-      Promise.all(files.map(file => optimizeImageFile(file)))
-        .then(nextImages => {
-          finalize(nextImages);
-        })
-        .catch(() => {
-          alert('No se pudieron procesar una o más imágenes. Intenta con fotos más ligeras.');
-        });
-      if(!files.length){
-        if(state.editingEntryId != null){
-          const existing = getEntryById(state.editingEntryId);
-          const nextImages = existing ? (existing.images || []) : [];
-          finalize(nextImages);
-        } else {
-          finalize([]);
-        }
+      } catch (error) {
+        alert(error.message);
       }
     });
     $('exportPdfBtn').addEventListener('click', () => {
@@ -1946,5 +2151,6 @@
     load();
     bindEvents();
     updateSelectionScreenSections();
+    fetchProjectsFromServer();
   });
 })();

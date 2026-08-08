@@ -5,12 +5,10 @@
 
 {% block content %}
   <div id="selectionScreen" class="selection-screen">
-    <div class="container py-5">
-              <span class="report-summary-pill-label">Nombre</span>
-        <div class="row g-0 align-items-center">
+    <div class="container selection-shell">
+        <div class="row g-0 align-items-center selection-hero">
           <div class="col-lg-6 selection-hero-left text-white p-5">
             <div class="brand-lockup d-flex align-items-center gap-3 mb-4">
-              <span class="report-summary-pill-label">Tipo</span>
               <div class="brand-copy text-start">
                 <div class="brand-name">Site Audit Pro</div>
                 <div class="brand-tagline">Reporting visual profesional para obra</div>
@@ -87,20 +85,99 @@
       </div>
     </div>
   </div>
-  <div id="appContent" class="container py-3 d-none">
-    <header class="app-header d-flex justify-content-between align-items-center mb-3 flex-wrap gap-3">
-      <div class="app-brand d-flex align-items-center gap-3">
+  <div id="appContent" class="app-shell d-none">
+    <aside class="app-sidebar">
+      <div class="app-sidebar-brand">
         <div class="brand-mark brand-mark-sm" aria-hidden="true">SA</div>
         <div>
-          <h1 class="app-title mb-0">Site Audit Pro</h1>
-          <p class="app-subtitle mb-0">Panel de reportes de obra</p>
+          <div class="app-sidebar-title">Site Audit Pro</div>
+          <div class="app-sidebar-subtitle">Control visual de obra</div>
         </div>
       </div>
-      <div class="app-header-actions d-flex gap-2 flex-wrap">
-        <button id="backToStartBtn" class="btn btn-outline-secondary btn-sm"><i class="bi bi-house-door me-1"></i>Inicio</button>
-        <button id="exportPdfBtn" class="btn btn-primary btn-sm"><i class="bi bi-file-earmark-pdf me-1"></i>Exportar PDF</button>
+
+      <div class="app-sidebar-group">
+        <div class="app-sidebar-label">Workspace</div>
+        <nav class="app-sidebar-nav">
+          <a class="app-nav-link active" href="#projectHeaderSection">
+            <i class="bi bi-grid-1x2-fill"></i>
+            <span>Resumen</span>
+          </a>
+          <a class="app-nav-link" href="#reportFrontsSection">
+            <i class="bi bi-diagram-3-fill"></i>
+            <span>Frentes</span>
+          </a>
+          <a class="app-nav-link" href="#entrySection">
+            <i class="bi bi-camera-fill"></i>
+            <span>Issues</span>
+          </a>
+          <a class="app-nav-link" href="#previewSection">
+            <i class="bi bi-file-earmark-richtext-fill"></i>
+            <span>Vista previa</span>
+          </a>
+        </nav>
       </div>
-    </header>
+
+      <div class="app-sidebar-group">
+        <div class="app-sidebar-label">Acciones</div>
+        <div class="app-sidebar-card">
+          <div class="sidebar-metric-row">
+            <span class="sidebar-metric-label">Modo</span>
+            <strong>Reporte activo</strong>
+          </div>
+          <div class="sidebar-metric-row">
+            <span class="sidebar-metric-label">Guardado</span>
+            <strong>Local inmediato</strong>
+          </div>
+          <div class="sidebar-metric-row">
+            <span class="sidebar-metric-label">Salida</span>
+            <strong>PDF estructurado</strong>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="app-main">
+      <div class="app-main-container">
+        <header class="app-header d-flex justify-content-between align-items-center mb-3 flex-wrap gap-3">
+          <div class="app-brand d-flex align-items-center gap-3">
+            <div>
+              <div class="app-header-kicker">Panel principal</div>
+              <h1 class="app-title mb-0">Site Audit Pro</h1>
+              <p class="app-subtitle mb-0">Ordena proyectos, reportes y evidencias sin cambiar tu flujo actual.</p>
+            </div>
+          </div>
+          <div class="app-header-actions d-flex gap-2 flex-wrap">
+            <button id="backToStartBtn" class="btn btn-outline-secondary btn-sm"><i class="bi bi-house-door me-1"></i>Inicio</button>
+            <button id="exportPdfBtn" class="btn btn-primary btn-sm"><i class="bi bi-file-earmark-pdf me-1"></i>Exportar PDF</button>
+          </div>
+        </header>
+
+        <section class="app-overview-grid mb-3">
+          <article class="app-overview-card">
+            <div class="app-overview-icon"><i class="bi bi-folder-check"></i></div>
+            <div>
+              <div class="app-overview-label">Gestión</div>
+              <div class="app-overview-title">Proyectos y reportes</div>
+              <p class="app-overview-copy mb-0">Tu estructura actual, pero ordenada en un panel de trabajo más claro.</p>
+            </div>
+          </article>
+          <article class="app-overview-card">
+            <div class="app-overview-icon"><i class="bi bi-phone"></i></div>
+            <div>
+              <div class="app-overview-label">Campo</div>
+              <div class="app-overview-title">Uso móvil directo</div>
+              <p class="app-overview-copy mb-0">Botones grandes, acceso rápido a fotos y captura desde obra.</p>
+            </div>
+          </article>
+          <article class="app-overview-card">
+            <div class="app-overview-icon"><i class="bi bi-filetype-pdf"></i></div>
+            <div>
+              <div class="app-overview-label">Entrega</div>
+              <div class="app-overview-title">PDF sin romper</div>
+              <p class="app-overview-copy mb-0">La mejora visual del panel no toca tu maqueta fija de exportación.</p>
+            </div>
+          </article>
+        </section>
 
     <section class="card app-section-card mb-3 p-4">
       <div class="section-card-header">
@@ -161,6 +238,34 @@
                 <button id="saveProjectInfoBtn" type="button" class="btn btn-primary btn-sm">Guardar cambios</button>
                 <button id="cancelProjectEditBtn" type="button" class="btn btn-outline-secondary btn-sm">Cancelar</button>
               </div>
+            </div>
+            <div id="projectSharingCard" class="project-edit-card mt-3 d-none">
+              <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-3">
+                <div>
+                  <div class="project-summary-label">Colaboración</div>
+                  <div class="project-summary-value">Comparte este proyecto por usuario</div>
+                </div>
+                <div id="projectAccessBadge" class="badge text-bg-light"></div>
+              </div>
+              <div id="projectMembersList" class="small mb-3"></div>
+              <div id="projectShareForm" class="row g-2 d-none">
+                <div class="col-md-5">
+                  <label class="form-label" for="shareUsername">Usuario a invitar</label>
+                  <input id="shareUsername" class="form-control" placeholder="Ej: supervisor01">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label" for="shareRole">Permiso</label>
+                  <select id="shareRole" class="form-select">
+                    <option value="viewer">Lector</option>
+                    <option value="editor">Editor</option>
+                    <option value="admin">Administrador</option>
+                  </select>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                  <button id="shareProjectBtn" type="button" class="btn btn-outline-primary w-100">Compartir</button>
+                </div>
+              </div>
+              <div class="form-text mt-2">En esta etapa se comparte el proyecto y sus permisos. El contenido detallado del reporte sigue guardándose localmente.</div>
             </div>
           </div>
           <div id="projectHelperText" class="form-text">Ya estás dentro de un proyecto activo. Completa los datos del reporte.</div>
@@ -388,10 +493,12 @@
       </section>
     </div>
 
-    <footer class="app-footer">
-      <div class="app-footer-brand">Site Audit Pro</div>
-      <div class="app-footer-text">Reportes fotográficos de obra · Guardado local · Exportación PDF</div>
-    </footer>
+        <footer class="app-footer">
+          <div class="app-footer-brand">Site Audit Pro</div>
+          <div class="app-footer-text">Reportes fotográficos de obra · Guardado local · Exportación PDF</div>
+        </footer>
+      </div>
+    </div>
   </div>
 {% endblock %}
 
