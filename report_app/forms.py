@@ -89,7 +89,6 @@ class ReportMetaForm(forms.Form):
             "class": "form-control",
             "id": "coverPhotoInput",
             "accept": "image/*",
-            "capture": "environment",
         }),
     )
     objective_text = forms.CharField(
