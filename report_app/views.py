@@ -1,4 +1,3 @@
-import os
 import json
 from datetime import datetime
 from pathlib import Path
@@ -215,35 +214,6 @@ def _sanitize_pdf_filename(value):
     return safe if safe.lower().endswith(".pdf") else f"{safe}.pdf"
 
 
-def _resolve_playwright_launch_options():
-    render_browser_path = "/opt/render/project/.playwright"
-    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", render_browser_path)
-
-    launch_options = {
-        "args": [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-        ]
-    }
-
-    browser_root = Path(render_browser_path)
-    executable_patterns = [
-        "**/chrome",
-        "**/chrome.exe",
-        "**/chrome-headless-shell",
-        "**/headless_shell",
-    ]
-
-    for pattern in executable_patterns:
-        for executable_path in sorted(browser_root.glob(pattern)):
-            if executable_path.is_file():
-                launch_options["executable_path"] = str(executable_path)
-                return launch_options
-
-    return launch_options
-
-
 def _serialize_entry(entry):
     return {
         "id": entry.id,
@@ -448,34 +418,15 @@ def project_report_export_pdf_real_api(request, project_slug, report_id):
     filename = _sanitize_pdf_filename(payload.get("fileName") or report.title or f"reporte-{report.id}")
 
     try:
-        from playwright.sync_api import sync_playwright
+        from weasyprint import HTML
     except ImportError:
-        return JsonResponse({"error": "Playwright no está instalado en el servidor. Ejecuta: python -m playwright install chromium"}, status=500)
+        return JsonResponse({"error": "WeasyPrint no está instalado en el servidor."}, status=500)
 
     base_url = request.build_absolute_uri("/")
     document_html = _build_pdf_export_document(report_html, base_url)
-    launch_options = _resolve_playwright_launch_options()
 
     try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(**launch_options)
-            page = browser.new_page(viewport={"width": 794, "height": 1123}, device_scale_factor=1)
-            page.set_content(document_html, wait_until="load")
-            page.emulate_media(media="screen")
-            page.wait_for_function(
-                """
-                () => Array.from(document.images || []).every(image => image.complete)
-                """,
-                timeout=10000,
-            )
-            pdf_bytes = page.pdf(
-                format="A4",
-                print_background=True,
-                prefer_css_page_size=True,
-                scale=1.0,
-                margin={"top": "1.5mm", "right": "1.5mm", "bottom": "1.5mm", "left": "1.5mm"},
-            )
-            browser.close()
+        pdf_bytes = HTML(string=document_html, base_url=base_url).write_pdf()
     except Exception as error:
         return JsonResponse({"error": f"No se pudo generar el PDF real: {error}"}, status=500)
 
