@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     buildCommand: ./build.sh
-    startCommand: gunicorn site_audit_report.wsgi:application
+    startCommand: ./start.sh
     envVars:
       - key: DJANGO_SECRET_KEY
         generateValue: true
@@ -14,6 +14,8 @@ services:
         value: site-audit-pro-lite.onrender.com
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
         value: https://site-audit-pro-lite.onrender.com
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /opt/render/project/.playwright
       - key: DATABASE_URL
         fromDatabase:
           name: site-audit-pro-lite-db
