@@ -150,39 +150,57 @@ def _load_static_text(relative_path):
 
 
 def _pdf_export_styles():
+    # WeasyPrint-compatible overrides — grid/flex replaced with table layout
     bootstrap_utilities = """
-    @page { size: A4; margin: 1.5mm; }
-    html, body { margin: 0; padding: 0; background: #ffffff; }
-    body { font-family: Arial, sans-serif; }
-    .badge { display: inline-block; padding: 0.45em 0.8em; font-size: 0.85em; font-weight: 700; line-height: 1; text-align: center; white-space: nowrap; vertical-align: baseline; border-radius: 999px; }
-    .bg-primary { background: #0d6efd !important; color: #ffffff !important; }
-    .bg-success { background: #198754 !important; color: #ffffff !important; }
-    .bg-secondary { background: #6c757d !important; color: #ffffff !important; }
-    .bg-warning { background: #ffc107 !important; color: #111111 !important; }
-    .text-dark { color: #111111 !important; }
-    .pdf-export-shell { width: 207mm; margin: 0 auto; padding: 0; background: #ffffff; }
+    @page { size: A4; margin: 8mm 6mm; }
+    html, body { margin: 0; padding: 0; background: #ffffff; font-family: Arial, sans-serif; font-size: 11px; }
+    .badge { display: inline-block; padding: 0.3em 0.7em; font-size: 9px; font-weight: 700; border-radius: 12px; }
+    .bg-primary { background: #0d6efd !important; color: #fff !important; }
+    .bg-success { background: #198754 !important; color: #fff !important; }
+    .bg-secondary { background: #6c757d !important; color: #fff !important; }
+    .bg-warning { background: #ffc107 !important; color: #111 !important; }
+    .text-dark { color: #111 !important; }
+
+    /* Container */
+    .pdf-export-shell { width: 100%; margin: 0; padding: 0; }
     .pdf-export-shell .report-container { width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; border: none !important; border-radius: 0 !important; box-shadow: none !important; }
+
+    /* Each report-page = one physical page */
     .pdf-export-shell .report-page,
     .pdf-export-shell .report-cover,
-    .pdf-export-shell .report-secondary-page,
-    .pdf-export-shell .report-front-page { width: 100% !important; min-height: 294mm !important; height: 294mm !important; margin: 0 !important; page-break-after: always !important; break-after: page !important; page-break-inside: avoid !important; break-inside: avoid !important; }
-    .pdf-export-shell .report-page:last-child { page-break-after: auto !important; break-after: auto !important; }
-    .pdf-export-shell .report-info-page-content { align-items: stretch !important; }
+    .pdf-export-shell .report-secondary-page { width: 100% !important; margin: 0 !important; padding: 0 !important; page-break-after: always !important; break-after: page !important; page-break-inside: auto !important; break-inside: auto !important; display: block !important; }
+    .pdf-export-shell .report-page:last-child,
+    .pdf-export-shell .report-cover:last-child { page-break-after: auto !important; break-after: auto !important; }
+
+    /* Headers / footers as block */
+    .pdf-export-shell .report-page-header,
+    .pdf-export-shell .report-page-footer,
+    .pdf-export-shell .report-cover-footer-block { display: block !important; width: 100% !important; }
+
+    /* Info page — table layout for WeasyPrint */
+    .pdf-export-shell .report-info-page-content { display: block !important; width: 100% !important; }
     .pdf-export-shell .report-info-page-content .secondary-head,
     .pdf-export-shell .report-info-page-content .secondary-photo-wrap,
     .pdf-export-shell .report-info-page-content .secondary-meta-row { width: 100% !important; max-width: none !important; }
-    .pdf-export-shell .report-entry-body { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) !important; }
-    .pdf-export-shell .report-entry-text,
+    .pdf-export-shell .secondary-meta-row { display: table !important; width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; }
+    .pdf-export-shell .secondary-meta-block { display: table-cell !important; width: 50% !important; vertical-align: top !important; padding: 8px !important; border: 1px solid #d7d7d7 !important; }
+
+    /* Entry row — table layout for side-by-side text + photo */
+    .pdf-export-shell .report-entry-body { display: table !important; width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; }
+    .pdf-export-shell .report-entry-text { display: table-cell !important; width: 46% !important; vertical-align: top !important; padding-right: 10px !important; word-break: break-word !important; }
+    .pdf-export-shell .report-entry-images { display: table-cell !important; width: 54% !important; vertical-align: top !important; }
+
+    /* Images */
+    .pdf-export-shell .report-entry-image-frame { display: block !important; width: 100% !important; }
+    .pdf-export-shell .thumb { max-width: 100% !important; height: auto !important; display: block !important; }
+    .pdf-export-shell .secondary-main-photo { max-width: 100% !important; height: auto !important; display: block !important; }
+
+    /* Misc text */
     .pdf-export-shell .report-entry-desc,
     .pdf-export-shell .report-section-body,
-    .pdf-export-shell .report-section-subtitle,
     .pdf-export-shell .report-list-items,
-    .pdf-export-shell .report-list-items li,
-    .pdf-export-shell .report-subsection-title { overflow-wrap: anywhere !important; word-break: break-word !important; }
-    .pdf-export-shell .report-entry-images { justify-items: center !important; }
-    .pdf-export-shell .report-entry-image-frame { width: 100% !important; max-height: 112mm !important; }
-    .pdf-export-shell .thumb { max-width: 100% !important; max-height: 112mm !important; }
-    .pdf-export-shell .report-page:last-child { margin-bottom: 0 !important; }
+    .pdf-export-shell .report-list-items li { word-break: break-word !important; overflow-wrap: anywhere !important; }
+    .pdf-export-shell .report-entry { page-break-inside: avoid !important; break-inside: avoid !important; }
     """
     return "\n".join([
         bootstrap_utilities,
