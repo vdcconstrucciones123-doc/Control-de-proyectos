@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     buildCommand: ./build.sh
-    startCommand: gunicorn site_audit_report.wsgi:application
+    startCommand: ./start.sh
     envVars:
       - key: DJANGO_SECRET_KEY
         generateValue: true
