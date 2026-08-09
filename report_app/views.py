@@ -227,16 +227,19 @@ def _resolve_playwright_launch_options():
         ]
     }
 
-    executable_candidates = [
-        Path(render_browser_path) / "chromium-1234" / "chrome-linux" / "chrome",
-        Path(render_browser_path) / "chromium-1234" / "chrome-win" / "chrome.exe",
-        Path(render_browser_path) / "chromium_headless_shell-1234" / "chrome-headless-shell-linux64" / "chrome-headless-shell",
+    browser_root = Path(render_browser_path)
+    executable_patterns = [
+        "**/chrome",
+        "**/chrome.exe",
+        "**/chrome-headless-shell",
+        "**/headless_shell",
     ]
 
-    for executable_path in executable_candidates:
-        if executable_path.exists():
-            launch_options["executable_path"] = str(executable_path)
-            break
+    for pattern in executable_patterns:
+        for executable_path in sorted(browser_root.glob(pattern)):
+            if executable_path.is_file():
+                launch_options["executable_path"] = str(executable_path)
+                return launch_options
 
     return launch_options
 
