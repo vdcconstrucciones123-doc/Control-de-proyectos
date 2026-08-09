@@ -14,6 +14,8 @@ services:
         value: site-audit-pro-lite.onrender.com
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
         value: https://site-audit-pro-lite.onrender.com
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /opt/render/project/.playwright
       - key: DATABASE_URL
         fromDatabase:
           name: site-audit-pro-lite-db
