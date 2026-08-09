@@ -31,13 +31,6 @@ textarea {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-  position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 280px;
-  min-height: 100vh;
-
 .form-select:focus,
 textarea:focus {
   border-color: #60a5fa !important;
@@ -57,8 +50,6 @@ textarea:focus {
   font-size: 0.92rem;
 }
 
-  margin-left: 280px;
-  background: transparent;
 .form-text {
   color: var(--text-muted) !important;
   font-size: 0.84rem;
@@ -128,23 +119,25 @@ textarea:focus {
 .btn-outline-secondary {
   border-color: var(--border-strong);
   color: var(--text-secondary);
-    padding: 0;
+  background: var(--surface);
 }
 
-    width: 280px;
-  color: var(--text);
-}
-    padding: 0.85rem;
-    border-radius: 24px;
+.btn-outline-danger {
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.22);
+  background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 4px 12px rgba(220, 38, 38, 0.08);
+}
+
+.btn-outline-danger:hover {
+  background: rgba(254, 226, 226, 0.95);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: #991b1b;
 }
 
 .btn-light.selection-btn,
 .selection-btn {
   width: 100%;
-  .app-main {
-    margin-left: 0;
-  }
   padding: 1rem 1.2rem;
   border-radius: var(--radius-md);
   background: var(--gradient-primary);
@@ -259,7 +252,10 @@ textarea:focus {
 
 /* ── Pantalla de inicio ── */
 .selection-screen {
-  display: none !important;
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
 }
 
 .selection-shell {
@@ -386,7 +382,13 @@ textarea:focus {
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: var(--shadow-hero);
   color: var(--text-on-dark);
-  z-index: 1035;
+  z-index: 1050;
+  touch-action: manipulation;
+}
+
+.app-sidebar, .app-sidebar .app-sidebar-nav .nav-link {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .app-admin-navbar {
@@ -1027,6 +1029,19 @@ body:not(.sidebar-collapse) .app-main {
   background: var(--surface-soft) !important;
 }
 
+#previewSection .preview-canvas {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+#previewSection .preview-scale-shell {
+  will-change: transform;
+  margin: 0 auto;
+  max-width: 100%;
+}
+
 #previewSection .report-container {
   margin-top: 0.75rem;
 }
@@ -1429,14 +1444,29 @@ body:not(.sidebar-collapse) .app-main {
 .report-entry-status { display: inline-block; margin-bottom: 6px; }
 .report-entry-desc { font-size: 20px !important; line-height: 1.85 !important; color: #222; }
 .report-entry-note { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #555; margin-top: 8px; }
-.report-entry-images { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 0; width: 100%; min-width: 0; align-items: start; }
-.report-entry-images > .thumb:only-child { grid-column: 1 / -1; }
-.thumb { width: 100%; max-width: 100%; height: auto; max-height: 94mm; object-fit: contain; border-radius: 8px; box-shadow: 0 1px 5px rgba(0,0,0,0.12); background: #f7f7f7; }
+.report-entry-images { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 0; width: 100%; min-width: 0; align-items: start; justify-items: start; }
+.report-entry-image-frame { width: auto; max-width: 100%; max-height: 94mm; display: inline-flex; align-items: flex-start; justify-content: flex-start; overflow: visible; border-radius: 0; box-shadow: none; background: transparent; }
+.report-entry-images > .report-entry-image-frame:only-child { grid-column: 1 / -1; }
+.thumb { width: auto; height: auto; max-width: 100%; max-height: 94mm; object-fit: contain; display: block; border-radius: 0; box-shadow: 0 1px 5px rgba(0,0,0,0.12); background: #f7f7f7; }
 .report-list-items { margin: 0; padding-left: 20px; font-size: 20px !important; line-height: 1.85 !important; }
 .report-list-items li { margin: 0 0 8px; font-size: 20px !important; line-height: 1.85 !important; }
 .front-num { font-weight: 600; min-width: 2.5rem; }
 
 @media (max-width: 768px) {
+  #previewSection {
+    overflow-x: hidden;
+  }
+  #previewSection .preview-canvas {
+    justify-content: flex-start;
+    overflow: hidden;
+  }
+  #previewSection .preview-scale-shell {
+    margin: 0 auto;
+    max-width: 100%;
+  }
+  #previewSection .report-container {
+    margin: 0;
+  }
   .report-entry-body { flex-direction: column; }
   .report-entry-images { justify-content: flex-start; max-width: 100%; margin-top: 8px; }
   .selection-screen { padding: 0.9rem 0.65rem; align-items: flex-start; }
@@ -1508,7 +1538,7 @@ body:not(.sidebar-collapse) .app-main {
 
 @media (max-width:576px) {
   /* Contenedor principal más compacto para móvil */
-  .report-container { min-height: auto; padding: 12px; }
+  #previewSection .report-container { padding: 0; }
   /* Imágenes responsivas en tarjetas */
   .thumb { max-width: 100%; max-height: 260px; width: 100%; margin-right: 0; }
   .report-entry .d-flex { display: block !important; }

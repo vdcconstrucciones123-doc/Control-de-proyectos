@@ -13,6 +13,7 @@ urlpatterns = [
     path("api/projects/<slug:project_slug>/reports/<int:report_id>/members/", views.report_members_api, name="report_members_api"),
     path("api/projects/<slug:project_slug>/reports/<int:report_id>/", views.project_report_detail_api, name="project_report_detail_api"),
     path("api/projects/<slug:project_slug>/reports/<int:report_id>/update/", views.project_report_update_api, name="project_report_update_api"),
+    path("api/projects/<slug:project_slug>/reports/<int:report_id>/export-pdf-real/", views.project_report_export_pdf_real_api, name="project_report_export_pdf_real_api"),
     path("api/projects/<slug:project_slug>/reports/<int:report_id>/fronts/", views.report_fronts_api, name="report_fronts_api"),
     path("api/projects/<slug:project_slug>/reports/<int:report_id>/fronts/<int:front_id>/", views.report_front_detail_api, name="report_front_detail_api"),
     path("api/projects/<slug:project_slug>/reports/<int:report_id>/entries/", views.report_entries_api, name="report_entries_api"),
@@ -23,8 +24,8 @@ urlpatterns = [
     path("panel-principal/", views.panel, name="panel_principal"),
     # Formulario exclusivo para crear un nuevo proyecto
     path("panel-principal/proyecto/nuevo/", views.panel, {"new_project": True}, name="proyecto_nuevo"),
-    # Ruta para abrir directamente la vista de proyecto (sin slug)
-    path("proyecto/", views.home, name="proyecto"),
+    # Ruta legacy sin slug: redirigir al panel principal
+    path("proyecto/", views.legacy_project_root, name="proyecto"),
     # Ruta con slug legible: /proyecto/<slug>/ (ej: /proyecto/proyecto1/)
     path("proyecto/<slug:project_slug>/", views.home, name="proyecto_detail"),
     # Ruta para editar los datos generales de un proyecto existente

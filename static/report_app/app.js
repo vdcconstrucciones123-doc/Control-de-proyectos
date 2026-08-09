@@ -20,8 +20,10 @@
   };
   const PDF_RENDER_SCALE = 1.25;
   const PDF_IMAGE_QUALITY = 0.82;
+  const PDF_PAGE_MARGIN_MM = 1.5;
   const UPLOAD_MAX_DIMENSION = 1800;
   const UPLOAD_IMAGE_QUALITY = 0.8;
+  const UPLOAD_FILE_MIME = 'image/jpeg';
   let pendingCoverPhotoFile = null;
 
   let state = {
@@ -88,6 +90,31 @@
       throw new Error(data.error || 'No se pudo completar la operación.');
     }
     return data;
+  }
+  async function requestBlob(url, options = {}){
+    const isFormData = options.body instanceof FormData;
+    const headers = {
+      'X-CSRFToken': getCsrfToken(),
+      ...(options.headers || {})
+    };
+    if(!isFormData && !headers['Content-Type']){
+      headers['Content-Type'] = 'application/json';
+    }
+    const response = await fetch(url, {
+      credentials: 'same-origin',
+      headers,
+      ...options
+    });
+    if(!response.ok){
+      const errorText = await response.text();
+      try {
+        const errorData = errorText ? JSON.parse(errorText) : {};
+        throw new Error(errorData.error || 'No se pudo descargar el PDF.');
+      } catch {
+        throw new Error(errorText || 'No se pudo descargar el PDF.');
+      }
+    }
+    return response.blob();
   }
   function mergeServerProject(serverProject){
     const existing = state.projects.find(project => project.slug === serverProject.slug || project.dbId === serverProject.id);
@@ -475,9 +502,19 @@
     state.reportMetaComplete = false;
   }
 
-  function switchProject(id){
+  function switchProject(id, options = {}){
+    const { openDashboardOnly = false } = options;
     const projectId = Number(id);
     if(projectId === state.currentProjectId){
+      if(openDashboardOnly){
+        resetReportDraftState();
+        state.showProjectForm = false;
+        state.selectionStage = 'reportType';
+        save();
+        renderAll();
+        updateSelectionScreenSections();
+        return;
+      }
       if(state.selectionStage !== 'reportType'){
         state.showProjectForm = false;
         state.selectionStage = 'reportType';
@@ -493,6 +530,9 @@
     state.showProjectForm = false;
     const project = getCurrentProject();
     if(project) loadProject(project);
+    if(openDashboardOnly){
+      resetReportDraftState();
+    }
     state.selectionStage = 'reportType';
     save();
     renderAll();
@@ -681,8 +721,12 @@
 
   function hasActiveReportWorkspaceContext(){
     const routeInfo = getRouteInfo();
-    const isInsideReportContext = !!(routeInfo.onNewReportPath || routeInfo.onReportPath || routeInfo.onFrontPath);
-    return !!(state.currentProjectId && state.currentReportId && isInsideReportContext);
+    const currentProject = getCurrentProject();
+    const currentReport = getCurrentReport();
+    const routeMatchesCurrentReport = routeInfo.onFrontPath || routeInfo.onReportPath
+      ? routeInfo.reportId === state.currentReportId
+      : false;
+    return !!(currentProject && currentReport && routeMatchesCurrentReport);
   }
 
   function resetReportDraftState(){
@@ -786,12 +830,18 @@
     state.existingReportOpen = false;
     state.reportMetaComplete = false;
     state.showPreviewMode = false;
+    state.workspaceView = 'fronts';
     state.currentFrontId = null;
+    state.selectedEntryId = null;
+    state.editingEntryId = null;
+    state.showIssueForm = false;
+    state.editingProjectInfo = false;
+    state.editingReportMeta = false;
     state.showProjectForm = state.projects.length === 0 ? true : state.showProjectForm === true;
     save();
     renderAll();
     updateSelectionScreenSections();
-    showSelectionScreen();
+    showAppScreen();
   }
 
   function activateNewProjectView(){
@@ -852,6 +902,13 @@
 
     if((routeInfo.onProjectPath || routeInfo.onNewReportPath || routeInfo.onReportPath || routeInfo.onFrontPath) && urlProjectId && activateProjectView(urlProjectId, { preserveDraft: routeInfo.onNewReportPath })){
       const project = getCurrentProject();
+      if(routeInfo.onProjectPath){
+        resetReportDraftState();
+        save();
+        renderAll();
+        showAppScreen();
+        return;
+      }
       if(routeInfo.onReportPath || routeInfo.onFrontPath){
         const report = project?.reports?.find(item => item.id === routeInfo.reportId);
         if(report){
@@ -885,7 +942,7 @@
         return;
       }
 
-      showSelectionScreen();
+      showAppScreen();
       return;
     }
 
@@ -1035,6 +1092,9 @@
         }
       }
     }
+    if(routeInfo.onProjectPath){
+      resetReportDraftState();
+    }
     renderAll();
     updateSelectionScreenSections();
 
@@ -1050,7 +1110,7 @@
     } else if(routeInfo.onProjectPath && state.currentProjectId){
       const proj = getCurrentProject();
       setProjectRoute(proj, { replace: true });
-      showSelectionScreen();
+      showAppScreen();
     } else if(routeInfo.onNewReportPath && state.currentProjectId){
       const proj = getCurrentProject();
       setNewReportRoute(proj, { replace: true });
@@ -1239,7 +1299,7 @@
 
       pageGroups.forEach((page, pageIndex) => {
         const rowsHtml = page.rows.map(row => {
-          const imagesMarkup = row.photos.length ? `<div class="report-entry-images">${row.photos.map(src => `<img src="${src}" class="thumb" alt="Foto">`).join('')}</div>` : '';
+          const imagesMarkup = row.photos.length ? `<div class="report-entry-images">${row.photos.map(src => `<div class="report-entry-image-frame"><img src="${src}" class="thumb" alt="Foto"></div>`).join('')}</div>` : '';
           const note = row.continuation ? `<div class="report-entry-note">Continuación</div>` : '';
           const item = row.item;
 
@@ -1351,30 +1411,45 @@
       }
     }
     $('exportPdfBtn')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
+    $('exportPdfMode')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
     $('dashboardHubSection')?.classList.toggle('d-none', isOnReportWorkspaceRoute());
     $('reportWorkspaceSection')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
     renderReportEditorSections();
     applyWorkspaceView();
-    $('companyName').value = state.companyName || 'VDC CONSTRUCCIONES SAC';
-    $('projectName').value = state.projectName || '';
-    $('projectLocation').value = state.projectLocation || '';
-    $('reportTitle').value = state.reportTitle || 'REPORTE FOTOGRÁFICO DE OBRA';
-    $('reportWeek').value = state.reportWeek || '8';
-    $('reportDate').value = state.reportDate || new Date().toISOString().slice(0, 10);
-    $('laborDateFrom').value = state.laborDateFrom || '';
-    $('laborDateTo').value = state.laborDateTo || '';
-    $('forWhom').value = state.forWhom || '';
-    $('fromWhom').value = state.fromWhom || '';
-    $('objectiveText').value = state.objectiveText || '';
-    $('analysisText').value = state.analysisText || '';
+    const companyNameInput = $('companyName');
+    const projectNameInput = $('projectName');
+    const projectLocationInput = $('projectLocation');
+    const reportTitleInput = $('reportTitle');
+    const reportWeekInput = $('reportWeek');
+    const reportDateInput = $('reportDate');
+    const laborDateFromInput = $('laborDateFrom');
+    const laborDateToInput = $('laborDateTo');
+    const forWhomInput = $('forWhom');
+    const fromWhomInput = $('fromWhom');
+    const objectiveTextInput = $('objectiveText');
+    const analysisTextInput = $('analysisText');
+    if(companyNameInput) companyNameInput.value = state.companyName || 'VDC CONSTRUCCIONES SAC';
+    if(projectNameInput) projectNameInput.value = state.projectName || '';
+    if(projectLocationInput) projectLocationInput.value = state.projectLocation || '';
+    if(reportTitleInput) reportTitleInput.value = state.reportTitle || 'REPORTE FOTOGRÁFICO DE OBRA';
+    if(reportWeekInput) reportWeekInput.value = state.reportWeek || '8';
+    if(reportDateInput) reportDateInput.value = state.reportDate || new Date().toISOString().slice(0, 10);
+    if(laborDateFromInput) laborDateFromInput.value = state.laborDateFrom || '';
+    if(laborDateToInput) laborDateToInput.value = state.laborDateTo || '';
+    if(forWhomInput) forWhomInput.value = state.forWhom || '';
+    if(fromWhomInput) fromWhomInput.value = state.fromWhom || '';
+    if(objectiveTextInput) objectiveTextInput.value = state.objectiveText || '';
+    if(analysisTextInput) analysisTextInput.value = state.analysisText || '';
     const metadataProjectName = $('metadataProjectName');
     const metadataReportType = $('metadataReportType');
     const metadataReportTypeDisplay = $('metadataReportTypeDisplay');
     if(metadataProjectName) metadataProjectName.value = state.projectName || '';
     if(metadataReportType) metadataReportType.value = state.reportType || '';
     if(metadataReportTypeDisplay) metadataReportTypeDisplay.value = state.reportType === 'incidencia' ? 'Reporte de incidencia' : state.reportType === 'avances' ? 'Reporte de avances' : '';
-    $('conclusionText').value = state.conclusionText || '';
-    $('recommendationText').value = state.recommendationText || '';
+    const conclusionTextInput = $('conclusionText');
+    const recommendationTextInput = $('recommendationText');
+    if(conclusionTextInput) conclusionTextInput.value = state.conclusionText || '';
+    if(recommendationTextInput) recommendationTextInput.value = state.recommendationText || '';
     const existingProjectName = $('existingProjectName');
     const existingReportTitle = $('existingReportTitle');
     const existingReportTitleCompact = $('existingReportTitleCompact');
@@ -1408,7 +1483,8 @@
       btn.classList.toggle('btn-primary', !state.showPreviewMode);
       btn.classList.toggle('btn-outline-primary', state.showPreviewMode);
     });
-    $('combineByStatus').checked = !!state.combineByStatus;
+    const combineByStatusInput = $('combineByStatus');
+    if(combineByStatusInput) combineByStatusInput.checked = !!state.combineByStatus;
     renderFrontList(); renderDuplicateAlert(); renderFrontSelect(); renderEntryList(); renderFrontDetail(); renderReport();
   }
 
@@ -1549,6 +1625,34 @@
   function renderFrontList(){ const container = $('frontList'); container.innerHTML = ''; if(!state.fronts.length){ container.innerHTML = '<p class="text-muted small mb-0">Sin frentes. Agrega uno para poder registrar issues.</p>'; return; } state.fronts.forEach(f => { const n = frontNumber(f.id); const div = document.createElement('div'); div.className = 'front-item d-flex align-items-center justify-content-between flex-wrap gap-2'; div.innerHTML = `<div class="d-flex align-items-center gap-2"><span class="badge bg-dark front-num">${n}</span><span>${escapeHtml(f.name)}</span></div><div class="d-flex gap-2 flex-wrap"><button data-id="${f.id}" class="btn btn-sm btn-primary open-front-btn">Ver detalle</button><button data-id="${f.id}" class="btn btn-sm btn-danger rm-front">Eliminar</button></div>`; container.appendChild(div); }); container.querySelectorAll('.rm-front').forEach(b => b.addEventListener('click', e => { const id = Number(e.target.dataset.id); if(confirm('¿Eliminar frente y sus entradas?')) removeFront(id); })); container.querySelectorAll('.open-front-btn').forEach(b => b.addEventListener('click', e => { const id = Number(e.target.dataset.id); const project = getCurrentProject(); if(id && project && state.currentReportId){ state.workspaceView = 'issues'; state.currentFrontId = id; state.showIssueForm = false; state.editingEntryId = null; state.selectedEntryId = null; save(); setFrontRoute(project, state.currentReportId, id); renderAll(); } })); }
   function renderEntryList(){ const container = $('entryList'); container.innerHTML = ''; const selectedFront = state.fronts.find(f => f.id === state.currentFrontId); const entries = selectedFront ? state.entries.filter(e => e.frontId === selectedFront.id) : state.entries; if(!entries.length){ container.innerHTML = '<p class="text-muted small mb-0">No hay issues en este frente. Crea una nueva issue cuando la necesites.</p>'; return; } entries.forEach(entry => { const front = state.fronts.find(f => f.id === entry.frontId); const name = front ? front.name : 'Frente eliminado'; const div = document.createElement('div'); div.className = 'entry-list-item'; div.innerHTML = `<div class="entry-list-meta"><div><strong>${escapeHtml(name)}</strong><br><span class="badge badge-status ${STATUS_BADGE[entry.status] || 'bg-info text-dark'}">${escapeHtml(entry.status)}</span></div><div class="entry-list-actions"><button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-entry">Editar</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-entry">Borrar</button></div></div><div class="entry-list-body">${escapeHtml(entry.desc || 'Sin descripción')}</div>`; container.appendChild(div); }); container.querySelectorAll('.edit-entry').forEach(btn => btn.addEventListener('click', e => { const entry = getEntryById(Number(e.target.dataset.id)); if(!entry) return; state.editingEntryId = entry.id; state.showIssueForm = true; $('selectFront').value = entry.frontId; $('selectFront').disabled = true; $('statusSelect').value = entry.status; $('entryDesc').value = entry.desc || ''; $('addEntryBtn').textContent = 'Guardar cambios'; $('cancelEntryEditBtn').classList.remove('d-none'); $('photoInput').value = ''; save(); renderAll(); $('entryDesc')?.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }); })); container.querySelectorAll('.delete-entry').forEach(btn => btn.addEventListener('click', e => { const id = Number(e.target.dataset.id); if(confirm('¿Borrar esta entrada del reporte?')) removeEntry(id); })); }
   function renderDuplicateAlert(){ const el = $('duplicateAlert'); if(!el) return; const groups = findDuplicateGroups(); if(!groups.length){ el.innerHTML = ''; return; } el.innerHTML = groups.map(group => { const names = group.map(f => `${frontNumber(f.id)}. ${escapeHtml(f.name)}`).join(', '); const keepId = group[0].id; const removeIds = group.slice(1).map(f => f.id); return `<div class="dup-group small"><strong>Duplicados:</strong> ${names}<button class="btn btn-sm btn-warning ms-2 merge-group" data-keep="${keepId}" data-remove="${removeIds.join(',')}">Fusionar</button></div>`; }).join(''); el.querySelectorAll('.merge-group').forEach(btn => btn.addEventListener('click', e => { const keepId = Number(e.target.dataset.keep); const removeIds = e.target.dataset.remove.split(',').map(Number); mergeFronts(keepId, removeIds); })); }
+  function updatePreviewScale(){
+    const previewCanvas = $('previewCanvas');
+    const previewScaleShell = $('previewScaleShell');
+    const reportContainer = $('reportContainer');
+    const previewGutter = window.innerWidth <= 1366 ? 24 : 12;
+    if(!previewCanvas || !previewScaleShell || !reportContainer) return;
+
+    previewScaleShell.style.width = '';
+    previewScaleShell.style.height = '';
+    previewCanvas.style.minHeight = '';
+    reportContainer.style.transform = '';
+    reportContainer.style.transformOrigin = '';
+
+    const previewBounds = previewCanvas.getBoundingClientRect();
+    const visibleViewportWidth = Math.max(0, window.innerWidth - previewBounds.left - previewGutter);
+    const availableWidth = Math.max(0, Math.min(previewCanvas.clientWidth - previewGutter, visibleViewportWidth));
+    const reportWidth = reportContainer.offsetWidth;
+    const reportHeight = reportContainer.offsetHeight;
+    if(!availableWidth || !reportWidth || !reportHeight) return;
+
+    const scale = Math.min(1, availableWidth / reportWidth);
+    previewScaleShell.style.width = `${Math.ceil(reportWidth * scale)}px`;
+    previewScaleShell.style.height = `${Math.ceil(reportHeight * scale)}px`;
+    reportContainer.style.transformOrigin = 'top left';
+    reportContainer.style.transform = `scale(${scale})`;
+    previewCanvas.style.minHeight = `${Math.ceil(reportHeight * scale)}px`;
+  }
+
   function renderProjectSelect(){ const sel = $('projectSelect'); if(!sel) return; sel.innerHTML = ''; if(!state.projects.length){ const empty = document.createElement('option'); empty.value = ''; empty.textContent = 'Ningún proyecto creado'; sel.appendChild(empty); return; } const placeholder = document.createElement('option'); placeholder.value = ''; placeholder.textContent = 'Selecciona un proyecto'; placeholder.disabled = true; placeholder.selected = !state.currentProjectId; sel.appendChild(placeholder); state.projects.forEach(p => { const opt = document.createElement('option'); opt.value = p.id; opt.textContent = p.projectName || `Proyecto ${state.projects.indexOf(p) + 1}`; if(p.id === state.currentProjectId) opt.selected = true; sel.appendChild(opt); }); }
   function renderReportList(){ const section = $('reportListSection'); const list = $('reportList'); const activeInfo = $('activeReportInfo'); if(!section || !list || !activeInfo) return; section.classList.add('d-none'); activeInfo.textContent = ''; }
   function renderProjectPanel(){
@@ -1563,10 +1667,6 @@
     const editName = $('editProjectName');
     const editLocation = $('editProjectLocation');
     const editProjectInfoBtn = $('editProjectInfoBtn');
-    const projectSharingCard = $('projectSharingCard');
-    const projectShareForm = $('projectShareForm');
-    const projectMembersList = $('projectMembersList');
-    const projectAccessBadge = $('projectAccessBadge');
     const current = getCurrentProject();
     const routeInfo = getRouteInfo();
     const isReportRoute = !!(routeInfo.onNewReportPath || routeInfo.onReportPath);
@@ -1587,15 +1687,6 @@
       if(editCompany) editCompany.value = state.companyName || current.companyName || 'VDC CONSTRUCCIONES SAC';
       if(editName) editName.value = state.projectName || current.projectName || '';
       if(editLocation) editLocation.value = state.projectLocation || current.projectLocation || '';
-      if(projectSharingCard) projectSharingCard.classList.remove('d-none');
-      if(projectShareForm) projectShareForm.classList.toggle('d-none', !current.canShare);
-      if(projectAccessBadge) projectAccessBadge.textContent = `${PROJECT_ROLE_LABELS[current.accessRole] || 'Sin acceso'}${current.isOwned ? ' · Propietario' : ''}`;
-      if(projectMembersList){
-        const members = Array.isArray(current.members) ? current.members : [];
-        projectMembersList.innerHTML = members.length
-          ? members.map(member => `<div class="project-member-item"><div><div class="project-member-name">${escapeHtml(member.username)}</div><div class="project-member-meta">${member.isOwner ? 'Propietario' : PROJECT_ROLE_LABELS[member.role] || member.role}</div></div><span class="badge text-bg-light">${member.isOwner ? 'Owner' : (PROJECT_ROLE_LABELS[member.role] || member.role)}</span></div>`).join('')
-          : '<div class="text-muted small">Sin miembros compartidos todavía.</div>';
-      }
     } else {
       if(selectGroup) selectGroup.classList.remove('d-none');
       if(displayGroup) displayGroup.classList.add('d-none');
@@ -1608,9 +1699,6 @@
       if(editCompany) editCompany.value = '';
       if(editName) editName.value = '';
       if(editLocation) editLocation.value = '';
-      if(projectSharingCard) projectSharingCard.classList.add('d-none');
-      if(projectMembersList) projectMembersList.innerHTML = '';
-      if(projectAccessBadge) projectAccessBadge.textContent = '';
     }
   }
   function renderDashboardHub(){
@@ -1747,6 +1835,7 @@
 
   function renderReport(){
     const rc = $('reportContainer');
+    if(!rc) return;
     rc.innerHTML = '';
 
     const reportTitle = (state.reportTitle || 'REPORTE FOTOGRÁFICO DE OBRA').trim();
@@ -1804,6 +1893,8 @@
       pageNode.innerHTML = `${renderCompanyHeader()}${page.body}${page.type === 'cover' ? renderCoverFooterBlock(number, totalPages) : renderPageFooter(number, totalPages)}`;
       rc.appendChild(pageNode);
     });
+
+    updatePreviewScale();
   }
 
   function loadImageFromDataUrl(dataUrl){
@@ -1845,7 +1936,7 @@
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', quality);
+    return canvas.toDataURL(UPLOAD_FILE_MIME, quality);
   }
 
   async function optimizeImageFile(file, options){
@@ -1853,13 +1944,121 @@
     return optimizeImageDataUrl(dataUrl, options);
   }
 
+  function dataUrlToBlob(dataUrl){
+    const [header, content] = String(dataUrl || '').split(',');
+    if(!header || !content) throw new Error('No se pudo procesar la imagen optimizada.');
+    const mimeMatch = header.match(/data:(.*?);base64/);
+    const mime = mimeMatch ? mimeMatch[1] : UPLOAD_FILE_MIME;
+    const binary = atob(content);
+    const bytes = new Uint8Array(binary.length);
+    for(let index = 0; index < binary.length; index++){
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new Blob([bytes], { type: mime });
+  }
+
+  async function optimizeImageUploadFile(file, options){
+    const optimizedDataUrl = await optimizeImageFile(file, options);
+    const optimizedBlob = dataUrlToBlob(optimizedDataUrl);
+    const baseName = (file?.name || 'imagen').replace(/\.[^.]+$/, '');
+    return new File([optimizedBlob], `${baseName}.jpg`, {
+      type: optimizedBlob.type || UPLOAD_FILE_MIME,
+      lastModified: Date.now()
+    });
+  }
+
+  async function optimizeImageUploadFiles(files, options){
+    const safeFiles = Array.isArray(files) ? files : [];
+    return Promise.all(safeFiles.map(file => optimizeImageUploadFile(file, options)));
+  }
+
+  function sanitizePdfFileSegment(value){
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase();
+  }
+
+  function buildPdfFileName(){
+    const reportName = sanitizePdfFileSegment(state.reportTitle || 'reporte');
+    const projectName = sanitizePdfFileSegment(state.projectName || 'proyecto');
+    const reportDate = sanitizePdfFileSegment(state.reportDate || new Date().toISOString().slice(0, 10));
+    return `${projectName || 'proyecto'}-${reportName || 'reporte'}-${reportDate || 'fecha'}.pdf`;
+  }
+
+  function downloadBlobFile(blob, fileName){
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
+
+  function buildRealPdfHtml(){
+    const reportContainer = $('reportContainer');
+    return reportContainer ? reportContainer.innerHTML : '';
+  }
+
+  async function exportRealPdf(){
+    const project = getCurrentProject();
+    if(!project || !state.currentReportId){
+      throw new Error('Primero abre un reporte antes de exportar.');
+    }
+    renderReport();
+    const html = buildRealPdfHtml();
+    if(!html.trim()){
+      throw new Error('No hay contenido del reporte para exportar.');
+    }
+    const fileName = buildPdfFileName();
+    const blob = await requestBlob(`/api/projects/${project.slug}/reports/${state.currentReportId}/export-pdf-real/`, {
+      method: 'POST',
+      body: JSON.stringify({ html, fileName })
+    });
+    downloadBlobFile(blob, fileName);
+  }
+
   function generateReportPdf(){
     const { jsPDF } = window.jspdf;
     const pages = Array.from(document.querySelectorAll('.report-page'));
+    const previewCanvas = $('previewCanvas');
+    const previewScaleShell = $('previewScaleShell');
+    const reportContainer = $('reportContainer');
+    const previewState = {
+      canvasMinHeight: previewCanvas?.style.minHeight || '',
+      shellWidth: previewScaleShell?.style.width || '',
+      shellHeight: previewScaleShell?.style.height || '',
+      containerTransform: reportContainer?.style.transform || '',
+      containerTransformOrigin: reportContainer?.style.transformOrigin || ''
+    };
+    if(previewCanvas) previewCanvas.style.minHeight = '';
+    if(previewScaleShell){
+      previewScaleShell.style.width = '';
+      previewScaleShell.style.height = '';
+    }
+    if(reportContainer){
+      reportContainer.style.transform = '';
+      reportContainer.style.transformOrigin = '';
+    }
     const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
+    const printableWidth = Math.max(1, pageWidth - (PDF_PAGE_MARGIN_MM * 2));
+    const printableHeight = Math.max(1, pageHeight - (PDF_PAGE_MARGIN_MM * 2));
     if(!pages.length){
+      if(previewCanvas) previewCanvas.style.minHeight = previewState.canvasMinHeight;
+      if(previewScaleShell){
+        previewScaleShell.style.width = previewState.shellWidth;
+        previewScaleShell.style.height = previewState.shellHeight;
+      }
+      if(reportContainer){
+        reportContainer.style.transform = previewState.containerTransform;
+        reportContainer.style.transformOrigin = previewState.containerTransformOrigin;
+      }
       return pdf;
     }
     const renderPage = async (page, pageIndex) => {
@@ -1869,14 +2068,31 @@
         backgroundColor: '#ffffff'
       });
       const imgData = canvas.toDataURL('image/jpeg', PDF_IMAGE_QUALITY);
+      const canvasWidth = canvas.width || 1;
+      const canvasHeight = canvas.height || 1;
+      const scale = Math.min(printableWidth / canvasWidth, printableHeight / canvasHeight);
+      const renderWidth = canvasWidth * scale;
+      const renderHeight = canvasHeight * scale;
+      const offsetX = PDF_PAGE_MARGIN_MM + ((printableWidth - renderWidth) / 2);
+      const offsetY = PDF_PAGE_MARGIN_MM + ((printableHeight - renderHeight) / 2);
       if(pageIndex > 0){
         pdf.addPage();
       }
-      pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'MEDIUM');
+      pdf.addImage(imgData, 'JPEG', offsetX, offsetY, renderWidth, renderHeight, undefined, 'MEDIUM');
     };
     return pages.reduce((promise, page, pageIndex) => {
       return promise.then(() => renderPage(page, pageIndex));
-    }, Promise.resolve()).then(() => pdf);
+    }, Promise.resolve()).then(() => pdf).finally(() => {
+      if(previewCanvas) previewCanvas.style.minHeight = previewState.canvasMinHeight;
+      if(previewScaleShell){
+        previewScaleShell.style.width = previewState.shellWidth;
+        previewScaleShell.style.height = previewState.shellHeight;
+      }
+      if(reportContainer){
+        reportContainer.style.transform = previewState.containerTransform;
+        reportContainer.style.transformOrigin = previewState.containerTransformOrigin;
+      }
+    });
   }
 
   function openReportForm(reportType){
@@ -1902,13 +2118,12 @@
   }
 
   function showSelectionScreen(){
-    $('selectionScreen').classList.add('d-none');
-    $('appContent').classList.remove('d-none');
+    showAppScreen();
   }
 
   function showAppScreen(){
-    $('selectionScreen').classList.add('d-none');
-    $('appContent').classList.remove('d-none');
+    $('selectionScreen')?.classList.add('d-none');
+    $('appContent')?.classList.remove('d-none');
   }
 
   function renderSelectionProjects(){
@@ -1933,6 +2148,9 @@
     const projectFormSection = $('projectFormSection');
     const projectCreatedSection = $('projectCreatedSection');
     const reportTypeSection = $('reportTypeSection');
+    if(!projectFormSection && !projectCreatedSection && !reportTypeSection){
+      return;
+    }
     if(projectFormSection){
       const showForm = state.projects.length === 0 || state.showProjectForm;
       projectFormSection.classList.toggle('d-none', !showForm);
@@ -1987,7 +2205,9 @@
       event.stopPropagation();
     }
 
-    const shouldOpen = !document.body.classList.contains('sidebar-open');
+    const shouldOpen = window.innerWidth <= 992
+      ? !document.body.classList.contains('sidebar-open')
+      : document.body.classList.contains('sidebar-collapse');
     setSidebarState(shouldOpen);
   }
 
@@ -1996,15 +2216,27 @@
       toggle.addEventListener('click', toggleSidebarMenu);
     });
 
-    document.addEventListener('click', event => {
-      const target = event.target;
-      const insideSidebar = target.closest('.app-sidebar');
-      const toggleButton = target.closest('[data-widget="pushmenu"]');
-      const workspaceLink = target.closest('[data-workspace-view]');
-      if(window.innerWidth <= 992 && document.body.classList.contains('sidebar-open') && !insideSidebar && !toggleButton && !workspaceLink){
+    document.querySelectorAll('.app-sidebar-brand').forEach(link => {
+      link.addEventListener('click', event => {
+        event.preventDefault();
+        activatePanelView();
+        setPanelRoute();
+        if(window.innerWidth <= 992){
+          setSidebarState(false);
+        }
+      });
+    });
+
+    const closeMobileSidebarOnOutsideTap = event => {
+      const path = event.composedPath ? event.composedPath() : [event.target];
+      const insideSidebar = path.some(el => el instanceof Element && el.closest('.app-sidebar'));
+      const toggleButton = path.some(el => el instanceof Element && el.closest('[data-widget="pushmenu"]'));
+      if(window.innerWidth <= 992 && document.body.classList.contains('sidebar-open') && !insideSidebar && !toggleButton){
         setSidebarState(false);
       }
-    });
+    };
+
+    document.addEventListener('click', closeMobileSidebarOnOutsideTap);
 
     document.addEventListener('keydown', event => {
       if(event.key === 'Escape' && window.innerWidth <= 992){
@@ -2013,7 +2245,7 @@
     });
 
     document.querySelectorAll('[data-workspace-view]').forEach(link => {
-      link.addEventListener('click', event => {
+      const handleWorkspaceLink = event => {
         event.preventDefault();
         const nextView = link.dataset.workspaceView;
         if(!nextView) return;
@@ -2037,11 +2269,15 @@
         }
         save();
         renderAll();
+        if(window.innerWidth <= 992){
+          setSidebarState(false);
+        }
         const target = document.querySelector(link.getAttribute('href'));
         target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
+      };
+      link.addEventListener('click', handleWorkspaceLink);
     });
-    $('createProjectBtn').addEventListener('click', async () => {
+    $('createProjectBtn')?.addEventListener('click', async () => {
       const company = $('companyName').value.trim() || 'VDC CONSTRUCCIONES SAC';
       const projectName = $('projectName').value.trim();
       const projectLocation = $('projectLocation').value.trim();
@@ -2203,7 +2439,7 @@
       if(!openBtn) return;
       const id = Number(openBtn.dataset.id);
       if(!id) return;
-      switchProject(id);
+      switchProject(id, { openDashboardOnly: true });
       setProjectRoute(getCurrentProject());
       renderAll();
     });
@@ -2295,7 +2531,7 @@
       setReportRoute(project, reportId);
       renderAll();
     });
-    $('createAnotherProjectBtn').addEventListener('click', () => {
+    $('createAnotherProjectBtn')?.addEventListener('click', () => {
       state.showProjectForm = true;
       state.selectionStage = 'project';
       state.currentProjectId = null;
@@ -2452,7 +2688,8 @@
       formData.append('autoMergeDup', String(!!state.autoMergeDup));
       formData.append('combineByStatus', String(!!state.combineByStatus));
       if(pendingCoverPhotoFile){
-        formData.append('coverPhoto', pendingCoverPhotoFile);
+        const optimizedCoverFile = await optimizeImageUploadFile(pendingCoverPhotoFile);
+        formData.append('coverPhoto', optimizedCoverFile);
       }
       let report;
       try {
@@ -2506,7 +2743,7 @@
       showSelectionScreen();
       updateSelectionScreenSections();
     });
-    $('newProjectBtn').addEventListener('click', () => {
+    $('newProjectBtn')?.addEventListener('click', () => {
       const name = prompt('Nombre del proyecto:', `Proyecto ${state.projects.length + 1}`);
       if(!name) return;
       const location = prompt('Ubicación del proyecto:','');
@@ -2541,28 +2778,28 @@
         alert(error.message);
       }
     });
-    $('projectSelect').addEventListener('change', e => {
+    $('projectSelect')?.addEventListener('change', e => {
       const id = Number(e.target.value);
       if(id) switchProject(id);
     });
-    $('companyName').addEventListener('input', e => { state.companyName = e.target.value; save(); renderReport(); });
-    $('projectName').addEventListener('input', e => { state.projectName = e.target.value; save(); renderReport(); });
-    $('projectLocation').addEventListener('input', e => { state.projectLocation = e.target.value; save(); renderReport(); });
-    $('reportTitle').addEventListener('input', e => { state.reportTitle = e.target.value; save(); renderReport(); });
-    $('reportWeek').addEventListener('input', e => { state.reportWeek = e.target.value; save(); renderReport(); });
-    $('reportDate').addEventListener('input', e => { state.reportDate = e.target.value; save(); renderReport(); });
-    $('laborDateFrom').addEventListener('input', e => { state.laborDateFrom = e.target.value; save(); renderReport(); });
-    $('laborDateTo').addEventListener('input', e => { state.laborDateTo = e.target.value; save(); renderReport(); });
-    $('forWhom').addEventListener('input', e => { state.forWhom = e.target.value; save(); renderReport(); });
-    $('fromWhom').addEventListener('input', e => { state.fromWhom = e.target.value; save(); renderReport(); });
-    $('objectiveText').addEventListener('input', e => { state.objectiveText = e.target.value; save(); renderReport(); });
-    $('analysisText').addEventListener('input', e => { state.analysisText = e.target.value; save(); renderReport(); });
-    $('objectiveText').addEventListener('input', e => { state.objectiveText = e.target.value; save(); renderReport(); });
-    $('analysisText').addEventListener('input', e => { state.analysisText = e.target.value; save(); renderReport(); });
-    $('metadataReportType').addEventListener('change', e => { state.reportType = e.target.value; save(); });
-    $('conclusionText').addEventListener('input', e => { state.conclusionText = e.target.value; state.conclusionItems = normalizeListItems(e.target.value); save(); renderAll(); });
-    $('recommendationText').addEventListener('input', e => { state.recommendationText = e.target.value; state.recommendationItems = normalizeListItems(e.target.value); save(); renderAll(); });
-    $('addConclusionBtn').addEventListener('click', () => {
+    $('companyName')?.addEventListener('input', e => { state.companyName = e.target.value; save(); renderReport(); });
+    $('projectName')?.addEventListener('input', e => { state.projectName = e.target.value; save(); renderReport(); });
+    $('projectLocation')?.addEventListener('input', e => { state.projectLocation = e.target.value; save(); renderReport(); });
+    $('reportTitle')?.addEventListener('input', e => { state.reportTitle = e.target.value; save(); renderReport(); });
+    $('reportWeek')?.addEventListener('input', e => { state.reportWeek = e.target.value; save(); renderReport(); });
+    $('reportDate')?.addEventListener('input', e => { state.reportDate = e.target.value; save(); renderReport(); });
+    $('laborDateFrom')?.addEventListener('input', e => { state.laborDateFrom = e.target.value; save(); renderReport(); });
+    $('laborDateTo')?.addEventListener('input', e => { state.laborDateTo = e.target.value; save(); renderReport(); });
+    $('forWhom')?.addEventListener('input', e => { state.forWhom = e.target.value; save(); renderReport(); });
+    $('fromWhom')?.addEventListener('input', e => { state.fromWhom = e.target.value; save(); renderReport(); });
+    $('objectiveText')?.addEventListener('input', e => { state.objectiveText = e.target.value; save(); renderReport(); });
+    $('analysisText')?.addEventListener('input', e => { state.analysisText = e.target.value; save(); renderReport(); });
+    $('objectiveText')?.addEventListener('input', e => { state.objectiveText = e.target.value; save(); renderReport(); });
+    $('analysisText')?.addEventListener('input', e => { state.analysisText = e.target.value; save(); renderReport(); });
+    $('metadataReportType')?.addEventListener('change', e => { state.reportType = e.target.value; save(); });
+    $('conclusionText')?.addEventListener('input', e => { state.conclusionText = e.target.value; state.conclusionItems = normalizeListItems(e.target.value); save(); renderAll(); });
+    $('recommendationText')?.addEventListener('input', e => { state.recommendationText = e.target.value; state.recommendationItems = normalizeListItems(e.target.value); save(); renderAll(); });
+    $('addConclusionBtn')?.addEventListener('click', () => {
       const value = $('conclusionItemInput').value.trim();
       if(!value){ return; }
       state.conclusionItems.push(value);
@@ -2570,7 +2807,7 @@
       save(); renderAll();
       $('conclusionItemInput').value = '';
     });
-    $('addRecommendationBtn').addEventListener('click', () => {
+    $('addRecommendationBtn')?.addEventListener('click', () => {
       const value = $('recommendationItemInput').value.trim();
       if(!value){ return; }
       state.recommendationItems.push(value);
@@ -2578,7 +2815,7 @@
       save(); renderAll();
       $('recommendationItemInput').value = '';
     });
-    $('coverPhotoInput').addEventListener('change', async () => {
+    $('coverPhotoInput')?.addEventListener('change', async () => {
       const file = $('coverPhotoInput').files[0];
       pendingCoverPhotoFile = file || null;
       if(!file){ state.coverImage = ''; save(); renderReport(); return; }
@@ -2588,7 +2825,7 @@
     });
     $('takePhotoBtn')?.addEventListener('click', () => $('photoCameraInput')?.click());
     $('choosePhotoBtn')?.addEventListener('click', () => $('photoInput')?.click());
-    $('addFrontBtn').addEventListener('click', async () => {
+    $('addFrontBtn')?.addEventListener('click', async () => {
       const name = $('frontName').value;
       try {
         if(await addFront(name)) $('frontName').value = '';
@@ -2598,10 +2835,10 @@
     });
     $('openIssueFormBtn')?.addEventListener('click', () => { if(state.currentFrontId){ resetEntryEditor(); state.workspaceView = 'issues'; state.showIssueForm = true; state.selectedEntryId = null; save(); renderAll(); $('entryDesc')?.focus(); } });
     document.querySelectorAll('.togglePreviewBtn').forEach(btn => btn.addEventListener('click', () => { state.workspaceView = state.workspaceView === 'preview' ? 'fronts' : 'preview'; state.showPreviewMode = state.workspaceView === 'preview'; save(); renderAll(); }));
-    $('combineByStatus').addEventListener('change', e => { state.combineByStatus = e.target.checked; save(); renderReport(); });
+    $('combineByStatus')?.addEventListener('change', e => { state.combineByStatus = e.target.checked; save(); renderReport(); });
     $('backToFrontListBtn')?.addEventListener('click', () => { const project = getCurrentProject(); state.workspaceView = 'fronts'; state.currentFrontId = null; state.showIssueForm = false; state.selectedEntryId = null; state.editingEntryId = null; save(); if(project && state.currentReportId){ setReportRoute(project, state.currentReportId); } renderAll(); });
-    $('cancelEntryEditBtn').addEventListener('click', () => { resetEntryEditor(); save(); renderAll(); });
-    $('addEntryBtn').addEventListener('click', async () => {
+    $('cancelEntryEditBtn')?.addEventListener('click', () => { resetEntryEditor(); save(); renderAll(); });
+    $('addEntryBtn')?.addEventListener('click', async () => {
       const frontId = Number($('selectFront').value);
       const status = $('statusSelect').value;
       const desc = $('entryDesc').value;
@@ -2618,7 +2855,8 @@
       if(state.editingEntryId != null && files.length){
         formData.append('replaceImages', 'true');
       }
-      files.forEach(file => formData.append('images', file));
+      const optimizedFiles = await optimizeImageUploadFiles(files);
+      optimizedFiles.forEach(file => formData.append('images', file));
       try {
         const serverEntry = state.editingEntryId != null
           ? await updateEntryRemote(project, state.currentReportId, state.editingEntryId, formData)
@@ -2639,15 +2877,38 @@
         alert(error.message);
       }
     });
-    $('exportPdfBtn')?.addEventListener('click', () => {
-      generateReportPdf().then(pdf => {
-        pdf.save('reporte.pdf');
-      });
+    $('exportPdfBtn')?.addEventListener('click', async () => {
+      const button = $('exportPdfBtn');
+      const mode = $('exportPdfMode')?.value || 'capture';
+      const originalLabel = button?.innerHTML || '';
+      if(button){
+        button.disabled = true;
+        button.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Exportando...';
+      }
+      try {
+        if(mode === 'real'){
+          await exportRealPdf();
+        } else {
+          const pdf = await generateReportPdf();
+          pdf.save(buildPdfFileName());
+        }
+      } catch (error) {
+        alert(error.message || 'No se pudo exportar el PDF.');
+      } finally {
+        if(button){
+          button.disabled = false;
+          button.innerHTML = originalLabel;
+        }
+      }
     });
   }
 
   window.addEventListener('popstate', () => {
     syncViewWithCurrentRoute();
+  });
+
+  window.addEventListener('resize', () => {
+    updatePreviewScale();
   });
 
   document.addEventListener('DOMContentLoaded', () => {

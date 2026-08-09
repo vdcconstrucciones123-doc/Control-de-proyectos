@@ -1,11 +1,13 @@
 import json
 from datetime import datetime
+from pathlib import Path
 
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.contrib.staticfiles import finders
 from django.db.models import Prefetch, Q
-from django.http import Http404, HttpResponseBadRequest, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 
@@ -135,6 +137,81 @@ def _coerce_list(value):
         except json.JSONDecodeError:
             return [item.strip() for item in value.splitlines() if item.strip()]
     return []
+
+
+def _load_static_text(relative_path):
+    absolute_path = finders.find(relative_path)
+    if not absolute_path:
+        return ""
+    try:
+        return Path(absolute_path).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _pdf_export_styles():
+    bootstrap_utilities = """
+    @page { size: A4; margin: 1.5mm; }
+    html, body { margin: 0; padding: 0; background: #ffffff; }
+    body { font-family: Arial, sans-serif; }
+    .badge { display: inline-block; padding: 0.45em 0.8em; font-size: 0.85em; font-weight: 700; line-height: 1; text-align: center; white-space: nowrap; vertical-align: baseline; border-radius: 999px; }
+    .bg-primary { background: #0d6efd !important; color: #ffffff !important; }
+    .bg-success { background: #198754 !important; color: #ffffff !important; }
+    .bg-secondary { background: #6c757d !important; color: #ffffff !important; }
+    .bg-warning { background: #ffc107 !important; color: #111111 !important; }
+    .text-dark { color: #111111 !important; }
+    .pdf-export-shell { width: 207mm; margin: 0 auto; padding: 0; background: #ffffff; }
+    .pdf-export-shell .report-container { width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; border: none !important; border-radius: 0 !important; box-shadow: none !important; }
+    .pdf-export-shell .report-page,
+    .pdf-export-shell .report-cover,
+    .pdf-export-shell .report-secondary-page,
+    .pdf-export-shell .report-front-page { width: 100% !important; min-height: 294mm !important; height: 294mm !important; margin: 0 !important; page-break-after: always !important; break-after: page !important; page-break-inside: avoid !important; break-inside: avoid !important; }
+    .pdf-export-shell .report-page:last-child { page-break-after: auto !important; break-after: auto !important; }
+    .pdf-export-shell .report-info-page-content { align-items: stretch !important; }
+    .pdf-export-shell .report-info-page-content .secondary-head,
+    .pdf-export-shell .report-info-page-content .secondary-photo-wrap,
+    .pdf-export-shell .report-info-page-content .secondary-meta-row { width: 100% !important; max-width: none !important; }
+    .pdf-export-shell .report-entry-body { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) !important; }
+    .pdf-export-shell .report-entry-text,
+    .pdf-export-shell .report-entry-desc,
+    .pdf-export-shell .report-section-body,
+    .pdf-export-shell .report-section-subtitle,
+    .pdf-export-shell .report-list-items,
+    .pdf-export-shell .report-list-items li,
+    .pdf-export-shell .report-subsection-title { overflow-wrap: anywhere !important; word-break: break-word !important; }
+    .pdf-export-shell .report-entry-images { justify-items: center !important; }
+    .pdf-export-shell .report-entry-image-frame { width: 100% !important; max-height: 112mm !important; }
+    .pdf-export-shell .thumb { max-width: 100% !important; max-height: 112mm !important; }
+    .pdf-export-shell .report-page:last-child { margin-bottom: 0 !important; }
+    """
+    return "\n".join([
+        bootstrap_utilities,
+        _load_static_text("report_app/theme.css"),
+        _load_static_text("report_app/styles.css"),
+    ])
+
+
+def _build_pdf_export_document(report_html, base_url):
+    return f"""<!doctype html>
+<html lang=\"es\">
+<head>
+  <meta charset=\"utf-8\">
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+    <base href=\"{base_url}\">
+  <style>{_pdf_export_styles()}</style>
+</head>
+<body>
+  <div class=\"pdf-export-shell\">
+    <div class=\"report-container\">{report_html}</div>
+  </div>
+</body>
+</html>"""
+
+
+def _sanitize_pdf_filename(value):
+    raw = str(value or "reporte").strip() or "reporte"
+    safe = "".join(character if character.isalnum() or character in {"-", "_", "."} else "_" for character in raw)
+    return safe if safe.lower().endswith(".pdf") else f"{safe}.pdf"
 
 
 def _serialize_entry(entry):
@@ -274,6 +351,11 @@ def panel(request, new_project=False):
     return home(request, new_project=new_project)
 
 
+@login_required
+def legacy_project_root(request):
+    return redirect("panel_principal")
+
+
 def root_redirect(request):
     if not request.user.is_authenticated:
         return redirect("login")
@@ -318,6 +400,57 @@ def project_collection_api(request):
     )
     project = _get_project_or_404(request.user, project.slug)
     return JsonResponse({"project": _serialize_project(project, request.user)}, status=201)
+
+
+@login_required
+@require_http_methods(["POST"])
+def project_report_export_pdf_real_api(request, project_slug, report_id):
+    project = _get_project_or_404(request.user, project_slug)
+    report = _get_user_report_or_404(project, request.user, report_id)
+    payload = _parse_json(request)
+    if payload is None:
+        return HttpResponseBadRequest("JSON inválido")
+
+    report_html = (payload.get("html") or "").strip()
+    if not report_html:
+        return JsonResponse({"error": "No hay contenido del reporte para exportar."}, status=400)
+
+    filename = _sanitize_pdf_filename(payload.get("fileName") or report.title or f"reporte-{report.id}")
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return JsonResponse({"error": "Playwright no está instalado en el servidor. Ejecuta: python -m playwright install chromium"}, status=500)
+
+    base_url = request.build_absolute_uri("/")
+    document_html = _build_pdf_export_document(report_html, base_url)
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page(viewport={"width": 794, "height": 1123}, device_scale_factor=1)
+            page.set_content(document_html, wait_until="load")
+            page.emulate_media(media="screen")
+            page.wait_for_function(
+                """
+                () => Array.from(document.images || []).every(image => image.complete)
+                """,
+                timeout=10000,
+            )
+            pdf_bytes = page.pdf(
+                format="A4",
+                print_background=True,
+                prefer_css_page_size=True,
+                scale=1.0,
+                margin={"top": "1.5mm", "right": "1.5mm", "bottom": "1.5mm", "left": "1.5mm"},
+            )
+            browser.close()
+    except Exception as error:
+        return JsonResponse({"error": f"No se pudo generar el PDF real: {error}"}, status=500)
+
+    response = HttpResponse(pdf_bytes, content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 @login_required
