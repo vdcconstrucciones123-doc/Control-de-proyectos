@@ -1,3 +1,4 @@
+import os
 import json
 from datetime import datetime
 from pathlib import Path
@@ -214,6 +215,32 @@ def _sanitize_pdf_filename(value):
     return safe if safe.lower().endswith(".pdf") else f"{safe}.pdf"
 
 
+def _resolve_playwright_launch_options():
+    render_browser_path = "/opt/render/project/.playwright"
+    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", render_browser_path)
+
+    launch_options = {
+        "args": [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+        ]
+    }
+
+    executable_candidates = [
+        Path(render_browser_path) / "chromium-1234" / "chrome-linux" / "chrome",
+        Path(render_browser_path) / "chromium-1234" / "chrome-win" / "chrome.exe",
+        Path(render_browser_path) / "chromium_headless_shell-1234" / "chrome-headless-shell-linux64" / "chrome-headless-shell",
+    ]
+
+    for executable_path in executable_candidates:
+        if executable_path.exists():
+            launch_options["executable_path"] = str(executable_path)
+            break
+
+    return launch_options
+
+
 def _serialize_entry(entry):
     return {
         "id": entry.id,
@@ -424,10 +451,11 @@ def project_report_export_pdf_real_api(request, project_slug, report_id):
 
     base_url = request.build_absolute_uri("/")
     document_html = _build_pdf_export_document(report_html, base_url)
+    launch_options = _resolve_playwright_launch_options()
 
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch()
+            browser = playwright.chromium.launch(**launch_options)
             page = browser.new_page(viewport={"width": 794, "height": 1123}, device_scale_factor=1)
             page.set_content(document_html, wait_until="load")
             page.emulate_media(media="screen")
