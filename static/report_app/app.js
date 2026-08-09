@@ -701,7 +701,8 @@
   function canEditProjectFromCurrentRoute(){
     const routeInfo = getRouteInfo();
     const current = getCurrentProject();
-    return !!routeInfo.onProjectPath && !!current?.canEdit;
+    const onEditableRoute = !!(routeInfo.onProjectPath || routeInfo.onPanelPath || routeInfo.onNewProjectPath);
+    return onEditableRoute && !!current?.canEdit;
   }
 
   function isOnNewReportRoute(){
@@ -1670,7 +1671,11 @@
     const current = getCurrentProject();
     const routeInfo = getRouteInfo();
     const isReportRoute = !!(routeInfo.onNewReportPath || routeInfo.onReportPath);
-    const canEditProject = !!(routeInfo.onProjectPath && !isReportRoute && current?.canEdit);
+    const canEditProject = !!(
+      (routeInfo.onProjectPath || routeInfo.onPanelPath || routeInfo.onNewProjectPath)
+      && !isReportRoute
+      && current?.canEdit
+    );
 
     if(current && state.currentProjectId){
       if(isReportRoute){
@@ -1749,6 +1754,7 @@
             </div>
             <div class="d-flex gap-2 flex-wrap">
               <button type="button" data-id="${project.id}" class="btn btn-sm ${project.id === state.currentProjectId ? 'btn-primary' : 'btn-outline-primary'} dashboard-project-open">Abrir</button>
+              ${project.canEdit ? `<button type="button" data-id="${project.id}" class="btn btn-sm btn-outline-secondary dashboard-project-edit"><i class="bi bi-pencil-square"></i></button>` : ''}
               ${project.canDelete ? `<button type="button" data-id="${project.id}" class="btn btn-sm btn-outline-danger dashboard-project-delete">Eliminar</button>` : ''}
             </div>
           </div>
@@ -2409,20 +2415,37 @@
         $('dashboardProjectName')?.focus();
         return;
       }
-      state.companyName = company;
-      state.projectName = projectName;
-      state.projectLocation = projectLocation;
-      try {
-        await createProject(projectName, projectLocation);
-      } catch (error) {
-        alert(error.message);
-        return;
+      const current = getCurrentProject();
+      if(state.editingProjectInfo && current){
+        try {
+          const remoteProject = await updateProjectRemote(current, { companyName: company, projectName, projectLocation });
+          Object.assign(current, remoteProject, { reports: current.reports || [] });
+          state.companyName = company;
+          state.projectName = projectName;
+          state.projectLocation = projectLocation;
+        } catch (error) {
+          alert(error.message);
+          return;
+        }
+      } else {
+        state.companyName = company;
+        state.projectName = projectName;
+        state.projectLocation = projectLocation;
+        try {
+          await createProject(projectName, projectLocation);
+        } catch (error) {
+          alert(error.message);
+          return;
+        }
       }
       state.showProjectForm = false;
+      state.editingProjectInfo = false;
+      save();
       renderAll();
     });
     $('dashboardCancelProjectBtn')?.addEventListener('click', () => {
       state.showProjectForm = false;
+      state.editingProjectInfo = false;
       resetProjectForm();
       renderAll();
     });
@@ -2436,12 +2459,32 @@
         return;
       }
       const openBtn = e.target.closest('.dashboard-project-open');
-      if(!openBtn) return;
-      const id = Number(openBtn.dataset.id);
-      if(!id) return;
-      switchProject(id, { openDashboardOnly: true });
-      setProjectRoute(getCurrentProject());
-      renderAll();
+      if(openBtn){
+        const id = Number(openBtn.dataset.id);
+        if(!id) return;
+        switchProject(id, { openDashboardOnly: true });
+        setProjectRoute(getCurrentProject());
+        renderAll();
+        return;
+      }
+      const editBtn = e.target.closest('.dashboard-project-edit');
+      if(editBtn){
+        const id = Number(editBtn.dataset.id);
+        if(!id) return;
+        switchProject(id, { openDashboardOnly: true });
+        const proj = getCurrentProject();
+        if(proj){
+          state.companyName = proj.companyName || '';
+          state.projectName = proj.projectName || '';
+          state.projectLocation = proj.projectLocation || '';
+        }
+        state.showProjectForm = true;
+        state.editingProjectInfo = true;
+        save();
+        setProjectRoute(getCurrentProject());
+        renderAll();
+        return;
+      }
     });
     $('dashboardBackToProjectsBtn')?.addEventListener('click', () => {
       state.selectionStage = 'project';
