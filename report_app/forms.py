@@ -101,6 +101,7 @@ class ReportMetaForm(forms.Form):
             ("", "Selecciona un tipo"),
             ("avances", "Reporte de avances"),
             ("incidencia", "Reporte de incidencia"),
+            ("equipos", "Recepción y entrega de equipos"),
         ],
         widget=forms.Select(attrs={
             "class": "form-select",
@@ -210,6 +211,7 @@ class ReportTypeForm(forms.Form):
             ("", "Selecciona un tipo"),
             ("avances", "Reporte de avances"),
             ("incidencia", "Reporte de incidencia"),
+            ("equipos", "Recepción y entrega de equipos"),
         ],
         widget=forms.Select(attrs={
             "class": "form-select",

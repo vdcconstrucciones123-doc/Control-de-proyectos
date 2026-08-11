@@ -61,9 +61,11 @@ class ProjectMembership(models.Model):
 class ProjectReport(models.Model):
     TYPE_PROGRESS = "avances"
     TYPE_INCIDENT = "incidencia"
+    TYPE_EQUIPMENT = "equipos"
     TYPE_CHOICES = [
         (TYPE_PROGRESS, "Reporte de avances"),
         (TYPE_INCIDENT, "Reporte de incidencia"),
+        (TYPE_EQUIPMENT, "Recepción y entrega de equipos"),
     ]
 
     project = models.ForeignKey(ReportProject, on_delete=models.CASCADE, related_name="reports")
@@ -123,6 +125,9 @@ class ReportFront(models.Model):
 class ReportEntry(models.Model):
     report = models.ForeignKey(ProjectReport, on_delete=models.CASCADE, related_name="entries")
     front = models.ForeignKey(ReportFront, on_delete=models.CASCADE, related_name="entries")
+    item_name = models.CharField(max_length=200, blank=True)
+    building_location = models.CharField(max_length=120, blank=True)
+    quantity = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=50)
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -16,7 +16,10 @@
     'En proceso': 'bg-primary',
     'Terminado': 'bg-success',
     'Pendiente': 'bg-secondary',
-    'Observado': 'bg-warning text-dark'
+    'Observado': 'bg-warning text-dark',
+    'Recepción': 'bg-primary',
+    'Validación': 'bg-info text-dark',
+    'Entrega': 'bg-success'
   };
   const PDF_RENDER_SCALE = 1.25;
   const PDF_IMAGE_QUALITY = 0.82;
@@ -67,6 +70,14 @@
   };
 
   function $(id){ return document.getElementById(id); }
+  function isEquipmentReport(){ return state.reportType === 'equipos'; }
+  function getReportTypeLabel(type){
+    const value = type || state.reportType || '';
+    if(value === 'incidencia') return 'Reporte de incidencia';
+    if(value === 'equipos') return 'Recepción y entrega de equipos';
+    if(value === 'avances') return 'Reporte de avances';
+    return '';
+  }
   function getCsrfToken(){
     return document.cookie.split('; ').find(row => row.startsWith('csrftoken='))?.split('=')[1] || '';
   }
@@ -353,7 +364,11 @@
       state.editingEntryId = report.editingEntryId || null;
       state.showIssueForm = !!report.showIssueForm;
       state.showPreviewMode = !!report.showPreviewMode;
-      state.workspaceView = state.showPreviewMode ? 'preview' : ((report.currentFrontId || state.showIssueForm) ? 'issues' : 'fronts');
+      state.workspaceView = state.showPreviewMode
+        ? 'preview'
+        : (report.type === 'equipos'
+          ? 'equipment'
+          : ((report.currentFrontId || state.showIssueForm) ? 'issues' : 'fronts'));
       state.reportMetaComplete = report.metaComplete !== undefined ? !!report.metaComplete : true;
       if(state.existingReportOpen){
         state.reportMetaComplete = true;
@@ -1239,6 +1254,49 @@
     return chunks;
   }
 
+  function buildEquipmentEntryHtml(item){
+    const photo = (item.images || [])[0] || '';
+    const imageMarkup = photo
+      ? `<div class="report-entry-image-frame"><img src="${photo}" class="thumb equipment-thumb" alt="Equipo"></div>`
+      : '<div class="equipment-photo-placeholder">Sin foto</div>';
+    return `
+      <div class="report-equipment-entry">
+        <div class="report-entry-body">
+          <div class="report-entry-text">
+            <div class="report-equipment-name">${escapeHtml(item.itemName || 'Sin nombre')}</div>
+            <div class="report-equipment-meta"><strong>Ubicación:</strong> ${escapeHtml(item.buildingLocation || '—')}</div>
+            <div class="report-equipment-meta"><strong>Cantidad:</strong> ${escapeHtml(String(item.quantity || 1))}</div>
+            <div class="report-entry-status">${statusBadge(item.status)}</div>
+            ${item.desc ? `<div class="report-entry-desc">${escapeHtml(item.desc)}</div>` : ''}
+          </div>
+          ${imageMarkup}
+        </div>
+      </div>
+    `;
+  }
+
+  function buildEquipmentPages(entries){
+    const items = Array.isArray(entries) ? entries : [];
+    if(!items.length){
+      return [{
+        type: 'content',
+        tag: 'REGISTRO DE EQUIPOS',
+        body: '<div class="report-page-content"><div class="report-section-title">REGISTRO DE EQUIPOS</div><div class="report-empty-state">No hay equipos registrados.</div></div>'
+      }];
+    }
+    const pages = [];
+    for(let index = 0; index < items.length; index += 2){
+      const chunk = items.slice(index, index + 2);
+      const rowsHtml = chunk.map(item => buildEquipmentEntryHtml(item)).join('');
+      pages.push({
+        type: 'content',
+        tag: 'REGISTRO DE EQUIPOS',
+        body: `<div class="report-page-content">${pages.length === 0 ? '<div class="report-section-title">REGISTRO DE EQUIPOS</div>' : ''}${rowsHtml}</div>`
+      });
+    }
+    return pages;
+  }
+
   function buildSection3Pages(groups){
     if(!groups.length){
       return [{
@@ -1446,7 +1504,7 @@
     const metadataReportTypeDisplay = $('metadataReportTypeDisplay');
     if(metadataProjectName) metadataProjectName.value = state.projectName || '';
     if(metadataReportType) metadataReportType.value = state.reportType || '';
-    if(metadataReportTypeDisplay) metadataReportTypeDisplay.value = state.reportType === 'incidencia' ? 'Reporte de incidencia' : state.reportType === 'avances' ? 'Reporte de avances' : '';
+    if(metadataReportTypeDisplay) metadataReportTypeDisplay.value = getReportTypeLabel(state.reportType);
     const conclusionTextInput = $('conclusionText');
     const recommendationTextInput = $('recommendationText');
     if(conclusionTextInput) conclusionTextInput.value = state.conclusionText || '';
@@ -1466,8 +1524,8 @@
     if(existingProjectName) existingProjectName.value = state.projectName || '';
     if(existingReportTitle) existingReportTitle.value = state.reportTitle || '';
     if(existingReportTitleCompact) existingReportTitleCompact.textContent = state.reportTitle || 'Sin título';
-    if(existingReportTypeDisplay) existingReportTypeDisplay.value = state.reportType === 'incidencia' ? 'Reporte de incidencia' : state.reportType === 'avances' ? 'Reporte de avances' : '';
-    if(existingReportTypeCompact) existingReportTypeCompact.textContent = state.reportType === 'incidencia' ? 'Reporte de incidencia' : state.reportType === 'avances' ? 'Reporte de avances' : 'Sin tipo';
+    if(existingReportTypeDisplay) existingReportTypeDisplay.value = getReportTypeLabel(state.reportType);
+    if(existingReportTypeCompact) existingReportTypeCompact.textContent = getReportTypeLabel(state.reportType) || 'Sin tipo';
     if(existingReportWeek) existingReportWeek.value = state.reportWeek || '';
     if(existingReportDate) existingReportDate.value = state.reportDate || '';
     if(existingLaborRange) existingLaborRange.value = [formatDateForDisplay(state.laborDateFrom || ''), formatDateForDisplay(state.laborDateTo || '')].filter(Boolean).join(' al ') || 'Sin rango';
@@ -1486,18 +1544,135 @@
     });
     const combineByStatusInput = $('combineByStatus');
     if(combineByStatusInput) combineByStatusInput.checked = !!state.combineByStatus;
-    renderFrontList(); renderDuplicateAlert(); renderFrontSelect(); renderEntryList(); renderFrontDetail(); renderReport();
+    renderFrontList(); renderDuplicateAlert(); renderFrontSelect(); renderEntryList(); renderEquipmentList(); renderFrontDetail(); renderReportTypeUi(); renderReport();
+  }
+
+  function renderReportTypeUi(){
+    const equipmentMode = isEquipmentReport();
+    document.querySelectorAll('.js-metadata-obra-only').forEach(el => {
+      el.classList.toggle('d-none', equipmentMode);
+    });
+    const workspaceTitle = $('reportWorkspaceTitle');
+    const workspaceDesc = $('reportWorkspaceDesc');
+    if(workspaceTitle){
+      workspaceTitle.textContent = equipmentMode ? 'Datos del acta de equipos' : 'Datos del reporte';
+    }
+    if(workspaceDesc){
+      workspaceDesc.textContent = equipmentMode
+        ? 'Completa portada y ficha técnica. Luego registra cada equipo con su foto.'
+        : 'Completa la información general antes de registrar frentes e issues.';
+    }
+    document.querySelectorAll('.js-nav-equipos').forEach(el => el.classList.toggle('d-none', !equipmentMode));
+    document.querySelectorAll('.js-nav-fronts, .js-nav-issues').forEach(el => el.classList.toggle('d-none', equipmentMode));
+    const combineByStatus = $('combineByStatus');
+    if(combineByStatus){
+      combineByStatus.closest('.form-check')?.classList.toggle('d-none', equipmentMode);
+    }
+  }
+
+  function clearEquipmentPhotoInputs(){
+    if($('equipmentPhotoInput')) $('equipmentPhotoInput').value = '';
+    if($('equipmentPhotoCameraInput')) $('equipmentPhotoCameraInput').value = '';
+  }
+
+  function getEquipmentPhotoFiles(){
+    const cameraFiles = $('equipmentPhotoCameraInput')?.files ? Array.from($('equipmentPhotoCameraInput').files) : [];
+    const pickerFiles = $('equipmentPhotoInput')?.files ? Array.from($('equipmentPhotoInput').files) : [];
+    return [...cameraFiles, ...pickerFiles].slice(0, 1);
+  }
+
+  function resetEquipmentEditor(){
+    state.editingEntryId = null;
+    if($('equipmentName')) $('equipmentName').value = '';
+    if($('equipmentBuilding')) $('equipmentBuilding').value = '';
+    if($('equipmentQuantity')) $('equipmentQuantity').value = '1';
+    if($('equipmentStatusSelect')) $('equipmentStatusSelect').value = 'Recepción';
+    if($('equipmentComments')) $('equipmentComments').value = '';
+    if($('addEquipmentBtn')) $('addEquipmentBtn').textContent = 'Agregar equipo';
+    $('cancelEquipmentEditBtn')?.classList.add('d-none');
+    clearEquipmentPhotoInputs();
+  }
+
+  async function ensureEquipmentFront(){
+    const existing = state.fronts.find(front => front.name === 'Equipos') || state.fronts[0];
+    if(existing) return existing.id;
+    const project = getCurrentProject();
+    if(!project || !state.currentReportId){
+      throw new Error('Primero guarda el reporte antes de registrar equipos.');
+    }
+    const front = await createFrontRemote(project, state.currentReportId, 'Equipos');
+    state.fronts.push(front);
+    const report = getCurrentReport();
+    if(report) report.fronts = [...state.fronts];
+    save();
+    return front.id;
+  }
+
+  function renderEquipmentList(){
+    const container = $('equipmentList');
+    if(!container) return;
+    if(!isEquipmentReport()){
+      container.innerHTML = '';
+      return;
+    }
+    if(!state.entries.length){
+      container.innerHTML = '<p class="text-muted small mb-0">Aún no hay equipos registrados.</p>';
+      return;
+    }
+    container.innerHTML = state.entries.map(entry => {
+      const thumb = (entry.images || [])[0]
+        ? `<img src="${entry.images[0]}" class="equipment-list-thumb" alt="">`
+        : '<span class="equipment-list-thumb equipment-list-thumb-empty">Sin foto</span>';
+      return `
+        <div class="entry-list-item equipment-list-item">
+          <div class="entry-list-meta d-flex align-items-start gap-2">
+            ${thumb}
+            <div>
+              <strong>${escapeHtml(entry.itemName || 'Sin nombre')}</strong>
+              <div class="small text-muted">${escapeHtml(entry.buildingLocation || 'Sin ubicación')} · Cant. ${escapeHtml(String(entry.quantity || 1))}</div>
+              <span class="badge badge-status ${STATUS_BADGE[entry.status] || 'bg-info text-dark'}">${escapeHtml(entry.status)}</span>
+              ${entry.desc ? `<div class="small mt-1">${escapeHtml(entry.desc)}</div>` : ''}
+            </div>
+          </div>
+          <div class="entry-list-actions">
+            <button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-equipment">Editar</button>
+            <button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-equipment">Eliminar</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+    container.querySelectorAll('.edit-equipment').forEach(btn => btn.addEventListener('click', e => {
+      const entry = getEntryById(Number(e.target.dataset.id));
+      if(!entry) return;
+      state.editingEntryId = entry.id;
+      $('equipmentName').value = entry.itemName || '';
+      $('equipmentBuilding').value = entry.buildingLocation || '';
+      $('equipmentQuantity').value = String(entry.quantity || 1);
+      $('equipmentStatusSelect').value = entry.status || 'Recepción';
+      $('equipmentComments').value = entry.desc || '';
+      $('addEquipmentBtn').textContent = 'Guardar equipo';
+      $('cancelEquipmentEditBtn')?.classList.remove('d-none');
+      clearEquipmentPhotoInputs();
+      $('equipmentName')?.focus();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }));
+    container.querySelectorAll('.delete-equipment').forEach(btn => btn.addEventListener('click', e => {
+      const id = Number(e.target.dataset.id);
+      if(confirm('¿Eliminar este equipo del reporte?')) removeEntry(id);
+    }));
   }
 
   function applyWorkspaceView(){
     const shouldShowWorkspaceControls = isOnReportWorkspaceRoute() && hasActiveReportWorkspaceContext();
     const view = state.workspaceView || 'fronts';
+    const equipmentSection = $('equipmentSection');
     const reportFrontsSection = $('reportFrontsSection');
     const frontDetailSection = $('frontDetailSection');
     const entrySection = $('entrySection');
     const previewSection = $('previewSection');
     const existingReportSummarySection = $('existingReportSummarySection');
     const reportConclusionsSection = $('reportConclusionsSection');
+    const equipmentMode = isEquipmentReport();
 
     document.querySelectorAll('[data-workspace-view]').forEach(link => {
       link.classList.toggle('active', shouldShowWorkspaceControls && link.dataset.workspaceView === view);
@@ -1510,21 +1685,24 @@
     state.showPreviewMode = view === 'preview';
 
     if(existingReportSummarySection){
-      existingReportSummarySection.classList.add('d-none');
+      existingReportSummarySection.classList.toggle('d-none', equipmentMode || view === 'preview');
+    }
+    if(equipmentSection){
+      equipmentSection.classList.toggle('d-none', !equipmentMode || view !== 'equipment');
     }
     if(reportFrontsSection){
-      reportFrontsSection.classList.toggle('d-none', view !== 'fronts');
+      reportFrontsSection.classList.toggle('d-none', equipmentMode || view !== 'fronts');
     }
     if(frontDetailSection){
-      const shouldShowFrontDetail = view === 'issues' && (state.currentFrontId || state.fronts.length || state.entries.length || state.showIssueForm);
+      const shouldShowFrontDetail = !equipmentMode && view === 'issues' && (state.currentFrontId || state.fronts.length || state.entries.length || state.showIssueForm);
       frontDetailSection.classList.toggle('d-none', !shouldShowFrontDetail);
     }
     if(entrySection){
-      const shouldShowEntrySection = view === 'issues' && (state.showIssueForm || state.currentFrontId || state.entries.length || state.fronts.length);
+      const shouldShowEntrySection = !equipmentMode && view === 'issues' && (state.showIssueForm || state.currentFrontId || state.entries.length || state.fronts.length);
       entrySection.classList.toggle('d-none', !shouldShowEntrySection);
     }
     if(reportConclusionsSection){
-      reportConclusionsSection.classList.toggle('d-none', view !== 'issues');
+      reportConclusionsSection.classList.toggle('d-none', equipmentMode || view !== 'issues');
     }
     if(previewSection){
       previewSection.classList.toggle('d-none', view !== 'preview');
@@ -1535,6 +1713,8 @@
     const shouldShowWorkspaceControls = isOnReportWorkspaceRoute() && hasActiveReportWorkspaceContext();
     $('sidebarDashboardGroup')?.classList.toggle('d-none', shouldShowWorkspaceControls);
     $('sidebarWorkspaceGroup')?.classList.toggle('d-none', !shouldShowWorkspaceControls);
+    document.querySelectorAll('.js-nav-equipos').forEach(el => el.classList.toggle('d-none', !isEquipmentReport()));
+    document.querySelectorAll('.js-nav-fronts, .js-nav-issues').forEach(el => el.classList.toggle('d-none', isEquipmentReport()));
   }
 
   function renderFrontDetail(){
@@ -1877,6 +2057,9 @@
       body: `<div class="report-page-content report-info-page-content"><div class="secondary-head"><div><strong>Semana:</strong> ${escapeHtml(reportWeek || 'Sin semana')}</div><div><strong>Proyecto:</strong> ${escapeHtml(projectName || 'Sin nombre')}</div><div><strong>Ubicación:</strong> ${escapeHtml(projectLocation || 'Sin ubicación')}</div><div><strong>Fecha:</strong> ${escapeHtml(fecha)}</div></div><div class="secondary-photo-wrap">${mainImage ? `<img src="${mainImage}" class="secondary-main-photo" alt="Foto principal">` : '<div class="secondary-photo-placeholder">Insertar foto principal</div>'}</div><div class="secondary-meta-row"><div class="secondary-meta-block"><label>Solicitado por</label><div>${escapeHtml(state.forWhom || 'Sin dato')}</div></div><div class="secondary-meta-block"><label>Responsable</label><div>${escapeHtml(state.fromWhom || 'Sin dato')}</div></div></div></div>`
     });
 
+    if(isEquipmentReport()){
+      pages.push(...buildEquipmentPages(state.entries));
+    } else {
     pages.push({
       type: 'section',
       tag: '1. OBJETIVO + 2. ANÁLISIS',
@@ -1890,6 +2073,7 @@
       tag: '4. CONCLUSIONES + 5. RECOMENDACIONES',
       body: `<div class="report-page-content"><div class="report-section-title">4. CONCLUSIONES</div><div class="report-section-body">${conclusionMarkup || '<div class="report-empty-state">Escriba aquí las conclusiones del avance o las observaciones finales.</div>'}</div><div class="report-section-title" style="margin-top: 24px;">5. RECOMENDACIONES</div><div class="report-section-body">${recommendationMarkup || '<div class="report-empty-state">Escriba aquí las recomendaciones del trabajo o actividades pendientes.</div>'}</div></div>`
     });
+    }
 
     const totalPages = pages.length;
     pages.forEach((page, index) => {
@@ -2112,7 +2296,9 @@
     }
     const defaultTitle = reportType === 'incidencia'
       ? 'REPORTE DE INCIDENCIA'
-      : 'REPORTE DE AVANCES';
+      : reportType === 'equipos'
+        ? 'RECEPCIÓN, VALIDACIÓN Y ENTREGA DE EQUIPOS'
+        : 'REPORTE DE AVANCES';
     resetReportDraftState();
     state.reportType = reportType;
     state.reportTitle = defaultTitle;
@@ -2259,6 +2445,13 @@
         state.showPreviewMode = nextView === 'preview';
         state.reportMetaComplete = true;
         state.existingReportOpen = true;
+        if(nextView === 'equipment'){
+          state.currentFrontId = null;
+          state.showIssueForm = false;
+          state.selectedEntryId = null;
+          state.editingEntryId = null;
+          resetEquipmentEditor();
+        }
         if(nextView === 'fronts'){
           state.currentFrontId = null;
           state.showIssueForm = false;
@@ -2516,7 +2709,11 @@
       state.editingReportMeta = false;
       resetReportDraftState();
       state.reportType = reportType;
-      state.reportTitle = reportType === 'incidencia' ? 'REPORTE DE INCIDENCIA' : 'REPORTE DE AVANCES';
+      state.reportTitle = reportType === 'incidencia'
+        ? 'REPORTE DE INCIDENCIA'
+        : reportType === 'equipos'
+          ? 'RECEPCIÓN, VALIDACIÓN Y ENTREGA DE EQUIPOS'
+          : 'REPORTE DE AVANCES';
       save();
       setNewReportRoute(project);
       renderAll();
@@ -2713,7 +2910,9 @@
       const formData = new FormData();
       const defaultTitle = reportType === 'incidencia'
         ? 'REPORTE DE INCIDENCIA'
-        : 'REPORTE DE AVANCES';
+        : reportType === 'equipos'
+          ? 'RECEPCIÓN, VALIDACIÓN Y ENTREGA DE EQUIPOS'
+          : 'REPORTE DE AVANCES';
       formData.append('reportType', reportType);
       formData.append('reportTitle', state.reportTitle || defaultTitle);
       formData.append('reportWeek', state.reportWeek || '8');
@@ -2748,7 +2947,7 @@
       state.reportType = reportType;
       state.reportMetaComplete = true;
       state.existingReportOpen = true;
-      state.workspaceView = 'fronts';
+      state.workspaceView = reportType === 'equipos' ? 'equipment' : 'fronts';
       state.editingReportMeta = false;
       loadProject(project);
       save();
@@ -2866,6 +3065,62 @@
       state.coverImage = optimizedImage;
       save(); renderReport();
     });
+    $('equipmentTakePhotoBtn')?.addEventListener('click', () => $('equipmentPhotoCameraInput')?.click());
+    $('equipmentChoosePhotoBtn')?.addEventListener('click', () => $('equipmentPhotoInput')?.click());
+    $('cancelEquipmentEditBtn')?.addEventListener('click', () => { resetEquipmentEditor(); save(); renderAll(); });
+    $('addEquipmentBtn')?.addEventListener('click', async () => {
+      const itemName = $('equipmentName')?.value.trim();
+      const buildingLocation = $('equipmentBuilding')?.value.trim();
+      const quantity = Math.max(1, Number($('equipmentQuantity')?.value || 1));
+      const status = $('equipmentStatusSelect')?.value || 'Recepción';
+      const comments = $('equipmentComments')?.value.trim();
+      const files = getEquipmentPhotoFiles();
+      const project = getCurrentProject();
+      if(!itemName){
+        alert('Ingresa el tipo o nombre del equipo.');
+        $('equipmentName')?.focus();
+        return;
+      }
+      if(!project || !state.currentReportId){
+        alert('Primero guarda el reporte antes de registrar equipos.');
+        return;
+      }
+      if(!state.editingEntryId && !files.length){
+        alert('Agrega una foto del equipo.');
+        return;
+      }
+      try {
+        const frontId = await ensureEquipmentFront();
+        const formData = new FormData();
+        formData.append('frontId', String(frontId));
+        formData.append('itemName', itemName);
+        formData.append('buildingLocation', buildingLocation);
+        formData.append('quantity', String(quantity));
+        formData.append('status', status);
+        formData.append('desc', comments);
+        if(state.editingEntryId != null && files.length){
+          formData.append('replaceImages', 'true');
+        }
+        const optimizedFiles = await optimizeImageUploadFiles(files);
+        optimizedFiles.forEach(file => formData.append('images', file));
+        const serverEntry = state.editingEntryId != null
+          ? await updateEntryRemote(project, state.currentReportId, state.editingEntryId, formData)
+          : await createEntryRemote(project, state.currentReportId, formData);
+        if(state.editingEntryId != null){
+          const existingIndex = state.entries.findIndex(entry => entry.id === state.editingEntryId);
+          if(existingIndex >= 0) state.entries[existingIndex] = serverEntry;
+        } else {
+          state.entries.push(serverEntry);
+        }
+        const report = getCurrentReport();
+        if(report) report.entries = [...state.entries];
+        resetEquipmentEditor();
+        save();
+        renderAll();
+      } catch (error) {
+        alert(error.message);
+      }
+    });
     $('takePhotoBtn')?.addEventListener('click', () => $('photoCameraInput')?.click());
     $('choosePhotoBtn')?.addEventListener('click', () => $('photoInput')?.click());
     $('addFrontBtn')?.addEventListener('click', async () => {
@@ -2877,7 +3132,14 @@
       }
     });
     $('openIssueFormBtn')?.addEventListener('click', () => { if(state.currentFrontId){ resetEntryEditor(); state.workspaceView = 'issues'; state.showIssueForm = true; state.selectedEntryId = null; save(); renderAll(); $('entryDesc')?.focus(); } });
-    document.querySelectorAll('.togglePreviewBtn').forEach(btn => btn.addEventListener('click', () => { state.workspaceView = state.workspaceView === 'preview' ? 'fronts' : 'preview'; state.showPreviewMode = state.workspaceView === 'preview'; save(); renderAll(); }));
+    document.querySelectorAll('.togglePreviewBtn').forEach(btn => btn.addEventListener('click', () => {
+      state.workspaceView = state.workspaceView === 'preview'
+        ? (isEquipmentReport() ? 'equipment' : 'fronts')
+        : 'preview';
+      state.showPreviewMode = state.workspaceView === 'preview';
+      save();
+      renderAll();
+    }));
     $('combineByStatus')?.addEventListener('change', e => { state.combineByStatus = e.target.checked; save(); renderReport(); });
     $('backToFrontListBtn')?.addEventListener('click', () => { const project = getCurrentProject(); state.workspaceView = 'fronts'; state.currentFrontId = null; state.showIssueForm = false; state.selectedEntryId = null; state.editingEntryId = null; save(); if(project && state.currentReportId){ setReportRoute(project, state.currentReportId); } renderAll(); });
     $('cancelEntryEditBtn')?.addEventListener('click', () => { resetEntryEditor(); save(); renderAll(); });

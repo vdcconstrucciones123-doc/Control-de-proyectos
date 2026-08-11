@@ -217,6 +217,9 @@ def _serialize_entry(entry):
     return {
         "id": entry.id,
         "frontId": entry.front_id,
+        "itemName": entry.item_name or "",
+        "buildingLocation": entry.building_location or "",
+        "quantity": entry.quantity or 1,
         "status": entry.status,
         "desc": entry.description,
         "images": [image.image.url for image in entry.images.all() if image.image],
@@ -638,6 +641,43 @@ def report_entries_api(request, project_slug, report_id):
     front_id = payload.get("frontId")
     status = (payload.get("status") or "").strip()
     description = (payload.get("desc") or "").strip()
+    item_name = (payload.get("itemName") or payload.get("item_name") or "").strip()
+    building_location = (payload.get("buildingLocation") or payload.get("building_location") or "").strip()
+    try:
+        quantity = int(payload.get("quantity") or 1)
+    except (TypeError, ValueError):
+        quantity = 1
+    quantity = max(1, quantity)
+
+    if report.report_type == ProjectReport.TYPE_EQUIPMENT:
+        if not item_name:
+            return JsonResponse({"error": "El nombre del equipo es obligatorio."}, status=400)
+        if not status:
+            return JsonResponse({"error": "El estado es obligatorio."}, status=400)
+        if not front_id:
+            front = report.fronts.order_by("sort_order", "id").first()
+            if not front:
+                front = ReportFront.objects.create(report=report, name="Equipos", sort_order=0)
+            front_id = front.id
+        else:
+            front = get_object_or_404(report.fronts.all(), pk=front_id)
+        new_images = request.FILES.getlist("images")
+        if len(new_images) > 1:
+            return JsonResponse({"error": "Solo se permite una foto por equipo."}, status=400)
+        entry = ReportEntry.objects.create(
+            report=report,
+            front=front,
+            item_name=item_name,
+            building_location=building_location,
+            quantity=quantity,
+            status=status,
+            description=description,
+        )
+        for index, image in enumerate(new_images):
+            EntryImage.objects.create(entry=entry, image=image, sort_order=index)
+        entry = ReportEntry.objects.prefetch_related("images").get(pk=entry.pk)
+        return JsonResponse({"entry": _serialize_entry(entry)}, status=201)
+
     if not front_id or not status:
         return JsonResponse({"error": "Frente y estado son obligatorios."}, status=400)
     front = get_object_or_404(report.fronts.all(), pk=front_id)
@@ -667,6 +707,42 @@ def report_entry_detail_api(request, project_slug, report_id, entry_id):
     front_id = payload.get("frontId") or entry.front_id
     status = (payload.get("status") or entry.status).strip()
     description = (payload.get("desc") or entry.description or "").strip()
+    item_name = (payload.get("itemName") or payload.get("item_name") or entry.item_name or "").strip()
+    building_location = (payload.get("buildingLocation") or payload.get("building_location") or entry.building_location or "").strip()
+    try:
+        quantity = int(payload.get("quantity") if payload.get("quantity") is not None else entry.quantity or 1)
+    except (TypeError, ValueError):
+        quantity = entry.quantity or 1
+    quantity = max(1, quantity)
+
+    if report.report_type == ProjectReport.TYPE_EQUIPMENT:
+        if not item_name:
+            return JsonResponse({"error": "El nombre del equipo es obligatorio."}, status=400)
+        if not status:
+            return JsonResponse({"error": "El estado es obligatorio."}, status=400)
+        entry.item_name = item_name
+        entry.building_location = building_location
+        entry.quantity = quantity
+        entry.status = status
+        entry.description = description
+        if front_id:
+            entry.front = get_object_or_404(report.fronts.all(), pk=front_id)
+        entry.save()
+        replace_images = str(payload.get("replaceImages", "false")).lower() in {"1", "true", "yes"}
+        new_images = request.FILES.getlist("images")
+        if len(new_images) > 1:
+            return JsonResponse({"error": "Solo se permite una foto por equipo."}, status=400)
+        if replace_images and entry.images.exists():
+            entry.images.all().delete()
+        if new_images:
+            if replace_images:
+                entry.images.all().delete()
+            next_order = entry.images.count()
+            for index, image in enumerate(new_images, start=next_order):
+                EntryImage.objects.create(entry=entry, image=image, sort_order=index)
+        entry = ReportEntry.objects.prefetch_related("images").get(pk=entry.pk)
+        return JsonResponse({"entry": _serialize_entry(entry)})
+
     entry.front = get_object_or_404(report.fronts.all(), pk=front_id)
     entry.status = status
     entry.description = description
