@@ -38,6 +38,31 @@ def _project_role_for_user(project, user):
     return membership.role if membership else None
 
 
+def _pick_most_restrictive_role(*roles):
+    order = {
+        ProjectMembership.ROLE_VIEWER: 1,
+        ProjectMembership.ROLE_EDITOR: 2,
+        ProjectMembership.ROLE_ADMIN: 3,
+    }
+    valid_roles = [role for role in roles if role in order]
+    if not valid_roles:
+        return None
+    return min(valid_roles, key=lambda role: order[role])
+
+
+def _effective_project_role_for_user(project, user):
+    project_role = _project_role_for_user(project, user)
+    if project_role:
+        return project_role
+    report_roles = [
+        membership.role
+        for membership in ReportMembership.objects.filter(report__project=project, user=user)
+    ]
+    if report_roles:
+        return _pick_most_restrictive_role(*report_roles)
+    return None
+
+
 def _can_edit_project(project, user):
     return _project_role_for_user(project, user) in {ProjectMembership.ROLE_ADMIN, ProjectMembership.ROLE_EDITOR}
 
@@ -514,7 +539,7 @@ def project_members_api(request, project_slug):
         defaults={"role": role},
     )
     project = _get_project_or_404(request.user, project.slug)
-    return JsonResponse({"members": _serialize_members(project)})
+    return JsonResponse({"members": _serialize_project_members(project)})
 
 
 @login_required

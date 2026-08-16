@@ -557,6 +557,10 @@
 
   async function deleteProject(id){
     const currentProject = getProjectById(id);
+    if(currentProject && !currentProject.canDelete){
+      alert('Solo el propietario puede eliminar este proyecto.');
+      return;
+    }
     if(currentProject?.dbId){
       await deleteProjectRemote(currentProject);
     }
@@ -588,6 +592,9 @@
   async function deleteReport(reportId){
     const project = getCurrentProject();
     if(!project || !project.reports?.length) return;
+    if(!ensureCanEditReport('No tienes permisos para eliminar este reporte.')){
+      return;
+    }
     if(!confirm('¿Eliminar este reporte? Esta acción no se puede deshacer.')) return;
     await deleteReportRemote(project, reportId);
     project.reports = project.reports.filter(r => r.id !== reportId);
@@ -718,6 +725,115 @@
     const current = getCurrentProject();
     const onEditableRoute = !!(routeInfo.onProjectPath || routeInfo.onPanelPath || routeInfo.onNewProjectPath);
     return onEditableRoute && !!current?.canEdit;
+  }
+
+  function canEditCurrentProject(){
+    const current = getCurrentProject();
+    return !!current?.canEdit;
+  }
+
+  function canEditCurrentReport(){
+    const currentReport = getCurrentReport();
+    return !!currentReport?.canEdit;
+  }
+
+  function ensureCanEditProject(message){
+    const current = getCurrentProject();
+    if(current && !current.canEdit){
+      alert(message || 'Solo tienes permisos de lectura en este proyecto.');
+      return false;
+    }
+    return true;
+  }
+
+  function ensureCanEditReport(message){
+    const currentReport = getCurrentReport();
+    if(currentReport && !currentReport.canEdit){
+      alert(message || 'Solo tienes permisos de lectura en este reporte.');
+      return false;
+    }
+    return true;
+  }
+
+  function setDisabledById(elementId, disabled){
+    const element = $(elementId);
+    if(element){
+      element.disabled = disabled;
+    }
+  }
+
+  function applyPermissionLocks(){
+    const currentProject = getCurrentProject();
+    const currentReport = getCurrentReport();
+    const hasProject = !!currentProject;
+    const hasReport = !!currentReport;
+    const canEditProject = canEditCurrentProject();
+    const canEditReport = canEditCurrentReport();
+    const lockProject = hasProject && !canEditProject;
+    const lockReport = hasReport && !canEditReport;
+    const lockReportMeta = hasProject && (hasReport ? !canEditReport : !canEditProject);
+
+    [
+      'dashboardNewReportBtn',
+      'dashboardReportType',
+      'editProjectInfoBtn',
+      'saveProjectInfoBtn',
+      'dashboardSaveProjectBtn',
+      'dashboardCompanyName',
+      'dashboardProjectName',
+      'dashboardProjectLocation',
+      'editCompanyName',
+      'editProjectName',
+      'editProjectLocation',
+      'shareProjectBtn',
+      'shareUsername',
+      'shareRole'
+    ].forEach(id => setDisabledById(id, lockProject));
+
+    [
+      'reportTitle',
+      'reportWeek',
+      'reportDate',
+      'laborDateFrom',
+      'laborDateTo',
+      'forWhom',
+      'fromWhom',
+      'objectiveText',
+      'analysisText',
+      'coverPhotoInput',
+      'continueToEditorBtn',
+      'editReportInfoBtn',
+      'addFrontBtn',
+      'frontName',
+      'openIssueFormBtn',
+      'addEntryBtn',
+      'statusSelect',
+      'entryDesc',
+      'photoInput',
+      'photoCameraInput',
+      'takePhotoBtn',
+      'choosePhotoBtn',
+      'addEquipmentBtn',
+      'equipmentName',
+      'equipmentBuilding',
+      'equipmentQuantity',
+      'equipmentStatusSelect',
+      'equipmentComments',
+      'equipmentPhotoInput',
+      'equipmentPhotoCameraInput',
+      'equipmentTakePhotoBtn',
+      'equipmentChoosePhotoBtn',
+      'addConclusionBtn',
+      'addRecommendationBtn',
+      'conclusionItemInput',
+      'recommendationItemInput',
+      'conclusionText',
+      'recommendationText'
+    ].forEach(id => setDisabledById(id, lockReportMeta));
+
+    document.querySelectorAll('.rm-front, .edit-entry, .delete-entry, .edit-equipment, .delete-equipment, .edit-entry-detail').forEach(button => {
+      button.disabled = lockReport;
+    });
   }
 
   function isOnNewReportRoute(){
@@ -1161,6 +1277,9 @@
   function findDuplicateGroups(){ const map = {}; state.fronts.forEach(f => { const key = normalizeName(f.name); if(!map[key]) map[key] = []; map[key].push(f); }); return Object.values(map).filter(g => g.length > 1); }
 
   async function addFront(name, opts){
+    if(!ensureCanEditReport('No tienes permisos para agregar frentes en este reporte.')){
+      return false;
+    }
     const cleanedName = cleanFrontName(name) || name.trim();
     if(!cleanedName) return false;
     const project = getCurrentProject();
@@ -1182,6 +1301,9 @@
   function getEntryById(id){ return state.entries.find(e => e.id === id); }
   function getFrontName(frontId){ const front = state.fronts.find(f => f.id === frontId); return front ? front.name : 'Frente eliminado'; }
   async function removeFront(id){
+    if(!ensureCanEditReport('No tienes permisos para eliminar frentes en este reporte.')){
+      return;
+    }
     const project = getCurrentProject();
     if(project && state.currentReportId){
       await deleteFrontRemote(project, state.currentReportId, id);
@@ -1193,6 +1315,9 @@
     save(); renderAll();
   }
   async function removeEntry(id){
+    if(!ensureCanEditReport('No tienes permisos para modificar issues en este reporte.')){
+      return;
+    }
     const project = getCurrentProject();
     if(project && state.currentReportId){
       await deleteEntryRemote(project, state.currentReportId, id);
@@ -1545,6 +1670,7 @@
     const combineByStatusInput = $('combineByStatus');
     if(combineByStatusInput) combineByStatusInput.checked = !!state.combineByStatus;
     renderFrontList(); renderDuplicateAlert(); renderFrontSelect(); renderEntryList(); renderEquipmentList(); renderFrontDetail(); renderReportTypeUi(); renderReport();
+    applyPermissionLocks();
   }
 
   function renderReportTypeUi(){
@@ -2488,6 +2614,9 @@
       if(state.currentProjectId && state.showProjectForm){
         const current = getCurrentProject();
         if(!current) return;
+        if(!ensureCanEditProject('No tienes permisos para editar este proyecto.')){
+          return;
+        }
         try {
           const remoteProject = await updateProjectRemote(current, {
             companyName: company,
@@ -2610,6 +2739,9 @@
       }
       const current = getCurrentProject();
       if(state.editingProjectInfo && current){
+        if(!ensureCanEditProject('No tienes permisos para editar este proyecto.')){
+          return;
+        }
         try {
           const remoteProject = await updateProjectRemote(current, { companyName: company, projectName, projectLocation });
           Object.assign(current, remoteProject, { reports: current.reports || [] });
@@ -2697,6 +2829,9 @@
     $('dashboardNewReportBtn')?.addEventListener('click', () => {
       const project = getCurrentProject();
       if(!project) return;
+      if(!ensureCanEditProject('No tienes permisos para crear reportes en este proyecto.')){
+        return;
+      }
       const reportType = $('dashboardReportType')?.value || '';
       if(!reportType){
         alert('Selecciona el tipo de reporte antes de continuar.');
@@ -2907,6 +3042,13 @@
       }
       const project = getCurrentProject();
       if(!project) return;
+      if(state.currentReportId){
+        if(!ensureCanEditReport('No tienes permisos para editar este reporte.')){
+          return;
+        }
+      } else if(!ensureCanEditProject('No tienes permisos para crear reportes en este proyecto.')){
+        return;
+      }
       const formData = new FormData();
       const defaultTitle = reportType === 'incidencia'
         ? 'REPORTE DE INCIDENCIA'
@@ -2957,6 +3099,9 @@
     });
     $('editReportInfoBtn')?.addEventListener('click', () => {
       if(!state.currentReportId || !isOnReportRoute()) return;
+      if(!ensureCanEditReport('No tienes permisos para editar este reporte.')){
+        return;
+      }
       state.editingReportMeta = true;
       state.showPreviewMode = false;
       save();
@@ -3069,6 +3214,9 @@
     $('equipmentChoosePhotoBtn')?.addEventListener('click', () => $('equipmentPhotoInput')?.click());
     $('cancelEquipmentEditBtn')?.addEventListener('click', () => { resetEquipmentEditor(); save(); renderAll(); });
     $('addEquipmentBtn')?.addEventListener('click', async () => {
+      if(!ensureCanEditReport('No tienes permisos para modificar este reporte.')){
+        return;
+      }
       const itemName = $('equipmentName')?.value.trim();
       const buildingLocation = $('equipmentBuilding')?.value.trim();
       const quantity = Math.max(1, Number($('equipmentQuantity')?.value || 1));
@@ -3124,6 +3272,9 @@
     $('takePhotoBtn')?.addEventListener('click', () => $('photoCameraInput')?.click());
     $('choosePhotoBtn')?.addEventListener('click', () => $('photoInput')?.click());
     $('addFrontBtn')?.addEventListener('click', async () => {
+      if(!ensureCanEditReport('No tienes permisos para agregar frentes en este reporte.')){
+        return;
+      }
       const name = $('frontName').value;
       try {
         if(await addFront(name)) $('frontName').value = '';
@@ -3131,7 +3282,20 @@
         alert(error.message);
       }
     });
-    $('openIssueFormBtn')?.addEventListener('click', () => { if(state.currentFrontId){ resetEntryEditor(); state.workspaceView = 'issues'; state.showIssueForm = true; state.selectedEntryId = null; save(); renderAll(); $('entryDesc')?.focus(); } });
+    $('openIssueFormBtn')?.addEventListener('click', () => {
+      if(!ensureCanEditReport('No tienes permisos para crear issues en este reporte.')){
+        return;
+      }
+      if(state.currentFrontId){
+        resetEntryEditor();
+        state.workspaceView = 'issues';
+        state.showIssueForm = true;
+        state.selectedEntryId = null;
+        save();
+        renderAll();
+        $('entryDesc')?.focus();
+      }
+    });
     document.querySelectorAll('.togglePreviewBtn').forEach(btn => btn.addEventListener('click', () => {
       state.workspaceView = state.workspaceView === 'preview'
         ? (isEquipmentReport() ? 'equipment' : 'fronts')
@@ -3144,6 +3308,9 @@
     $('backToFrontListBtn')?.addEventListener('click', () => { const project = getCurrentProject(); state.workspaceView = 'fronts'; state.currentFrontId = null; state.showIssueForm = false; state.selectedEntryId = null; state.editingEntryId = null; save(); if(project && state.currentReportId){ setReportRoute(project, state.currentReportId); } renderAll(); });
     $('cancelEntryEditBtn')?.addEventListener('click', () => { resetEntryEditor(); save(); renderAll(); });
     $('addEntryBtn')?.addEventListener('click', async () => {
+      if(!ensureCanEditReport('No tienes permisos para modificar issues en este reporte.')){
+        return;
+      }
       const frontId = Number($('selectFront').value);
       const status = $('statusSelect').value;
       const desc = $('entryDesc').value;

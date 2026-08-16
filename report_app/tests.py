@@ -212,6 +212,38 @@ class ProjectApiTests(TestCase):
         self.assertEqual(len(payload[0]["reports"]), 1)
         self.assertEqual(payload[0]["reports"][0]["title"], "Reporte Visible")
 
+    def test_viewer_cannot_edit_shared_project_or_report(self):
+        project = ReportProject.objects.create(owner=self.owner, company_name="VDC", project_name="Proyecto Solo Lectura")
+        report = ProjectReport.objects.create(project=project, title="Reporte Lectura")
+        front = ReportFront.objects.create(report=report, name="Frente 1")
+        ProjectMembership.objects.create(project=project, user=self.viewer, role=ProjectMembership.ROLE_VIEWER)
+        self.client.force_login(self.viewer)
+
+        update_project_response = self.client.patch(
+            reverse("project_detail_api", args=[project.slug]),
+            data='{"companyName":"VDC","projectName":"No permitido","projectLocation":"Lima"}',
+            content_type="application/json",
+        )
+        update_report_response = self.client.post(
+            reverse("project_report_update_api", args=[project.slug, report.id]),
+            data={
+                "reportType": "avances",
+                "reportTitle": "No permitido",
+            },
+        )
+        create_entry_response = self.client.post(
+            reverse("report_entries_api", args=[project.slug, report.id]),
+            data={
+                "frontId": str(front.id),
+                "status": "Pendiente",
+                "desc": "Intento de edición",
+            },
+        )
+
+        self.assertEqual(update_project_response.status_code, 403)
+        self.assertEqual(update_report_response.status_code, 403)
+        self.assertEqual(create_entry_response.status_code, 403)
+
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
 class ReportStorageLifecycleTests(TestCase):
