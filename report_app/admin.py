@@ -1,6 +1,57 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.contrib.auth.models import User
+from django.utils import timezone
 
-from .models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportProject
+from .models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportProject, UserProfile
+
+
+class UserProfileInline(admin.StackedInline):
+    model = UserProfile
+    fk_name = "user"
+    can_delete = False
+    extra = 0
+    readonly_fields = ("approved_at", "approved_by", "created_at")
+
+
+class UserAdmin(DjangoUserAdmin):
+    inlines = [UserProfileInline]
+    list_display = ("username", "email", "first_name", "last_name", "is_staff", "approval_status")
+    list_filter = DjangoUserAdmin.list_filter + ("profile__is_approved",)
+
+    @admin.display(description="Aprobación")
+    def approval_status(self, obj):
+        profile = getattr(obj, "profile", None)
+        if not profile:
+            return "Sin perfil"
+        return "Aprobado" if profile.is_approved else "Pendiente"
+
+    actions = ["approve_selected_users"]
+
+    @admin.action(description="Aprobar usuarios seleccionados")
+    def approve_selected_users(self, request, queryset):
+        for user in queryset:
+            profile, _ = UserProfile.objects.get_or_create(user=user)
+            profile.is_approved = True
+            profile.approved_at = timezone.now()
+            profile.approved_by = request.user
+            profile.save(update_fields=["is_approved", "approved_at", "approved_by"])
+
+
+admin.site.unregister(User)
+admin.site.register(User, UserAdmin)
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ("user", "is_approved", "approved_by", "approved_at", "created_at")
+    list_filter = ("is_approved",)
+    search_fields = ("user__username", "user__email")
+    actions = ["approve_profiles"]
+
+    @admin.action(description="Aprobar cuentas seleccionadas")
+    def approve_profiles(self, request, queryset):
+        queryset.update(is_approved=True, approved_at=timezone.now(), approved_by=request.user)
 
 
 class ProjectMembershipInline(admin.TabularInline):

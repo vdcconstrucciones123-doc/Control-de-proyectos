@@ -8,7 +8,7 @@ from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
-from report_app.models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportMembership, ReportProject
+from report_app.models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportMembership, ReportProject, UserProfile
 
 
 class HomeViewTests(TestCase):
@@ -88,8 +88,19 @@ class AuthViewTests(TestCase):
             "password2": "ClaveSegura123!",
         })
 
-        self.assertRedirects(response, reverse("panel_principal"))
+        self.assertRedirects(response, reverse("registration_pending"))
         self.assertTrue(User.objects.filter(username="cliente1").exists())
+
+    def test_pending_user_cannot_login_until_approved(self):
+        User.objects.create_user(username="pendiente", password="ClaveSegura123")
+
+        response = self.client.post(reverse("login"), {
+            "username": "pendiente",
+            "password": "ClaveSegura123",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "pendiente de aprobación")
 
 
 class AdminBootstrapCommandTests(TestCase):
@@ -122,6 +133,7 @@ class ProjectApiTests(TestCase):
         self.owner = User.objects.create_user(username="owner", password="ClaveSegura123")
         self.editor = User.objects.create_user(username="editor", password="ClaveSegura123")
         self.viewer = User.objects.create_user(username="viewer", password="ClaveSegura123")
+        UserProfile.objects.filter(user__in=[self.owner, self.editor, self.viewer]).update(is_approved=True)
         self.client.force_login(self.owner)
 
     def test_owner_can_create_project(self):
@@ -161,6 +173,20 @@ class ProjectApiTests(TestCase):
         self.assertEqual(len(payload), 1)
         self.assertEqual(payload[0]["slug"], project.slug)
         self.assertFalse(payload[0]["canShare"])
+        self.assertEqual(payload[0]["sharedByUsername"], self.owner.username)
+        self.assertEqual({member["username"] for member in payload[0]["members"]}, {"owner", "viewer"})
+
+    def test_owner_sees_all_project_recipients(self):
+        project = ReportProject.objects.create(owner=self.owner, company_name="VDC", project_name="Proyecto Destinatarios")
+        ProjectMembership.objects.create(project=project, user=self.viewer, role=ProjectMembership.ROLE_VIEWER)
+
+        response = self.client.get(reverse("project_collection_api"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {member["username"] for member in response.json()["projects"][0]["members"]},
+            {"owner", "viewer"},
+        )
 
     def test_editor_can_update_project_but_not_share(self):
         project = ReportProject.objects.create(owner=self.owner, company_name="VDC", project_name="Proyecto Edit")

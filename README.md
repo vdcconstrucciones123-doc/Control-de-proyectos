@@ -10,9 +10,7 @@ Aplicación Django para generar reportes fotográficos de obra desde celular o e
 
 La app ahora exige autenticación para entrar al panel principal.
 
-Por esta fase, cada usuario trabaja con su propio espacio desde el navegador usando almacenamiento local separado por cuenta. Esto permite ordenar el acceso sin romper el flujo actual.
-
-El trabajo compartido real por proyecto entre varios usuarios se implementará en la siguiente etapa con modelos y permisos en base de datos.
+Los proyectos se guardan en la base de datos y se mantienen al registrar o aprobar usuarios. Los reportes y sus permisos de acceso se conservan al desplegar nuevas versiones.
 
 ## Proyectos con propietario y compartición
 
@@ -86,7 +84,7 @@ http://127.0.0.1:8000/
 - `DJANGO_CSRF_TRUSTED_ORIGINS`
 - `DATABASE_URL`
 - `CLOUDINARY_URL` o alternativamente `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
-- `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD` para crear o actualizar un admin automático en deploy
+- `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD` para crear o actualizar un admin automático en deploy. También se aceptan los nombres alternativos `SUPERUSER_USERNAME`, `SUPERUSER_EMAIL`, `SUPERUSER_PASSWORD`.
 - `ALLOW_DEFAULT_ADMIN=True` si quieres forzar temporalmente un admin por defecto `ADMIN` / `ADMIN` sin definir las variables anteriores
 
 Ejemplo local opcional:

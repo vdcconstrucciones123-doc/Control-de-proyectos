@@ -98,6 +98,9 @@
     <div class="content-wrapper app-main">
       <div class="content app-main-container">
     <section id="dashboardHubSection" class="card app-section-card mb-3 p-4">
+      <div id="readOnlyBanner" class="alert alert-info d-none mb-3" role="status">
+        <strong>Solo lectura.</strong> <span id="readOnlyBannerText">Este proyecto fue compartido contigo. Puedes ver y exportar, pero no modificar.</span>
+      </div>
       <div id="dashboardIntroHeader" class="section-card-header">
         <span class="section-icon"><i class="bi bi-kanban"></i></span>
         <div>
@@ -151,6 +154,32 @@
           </div>
         </div>
         <div id="dashboardProjectSummary" class="project-summary-card mb-3"></div>
+        <div id="projectShareSection" class="project-share-card d-none mb-3">
+          <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+            <div>
+              <div class="project-summary-label">Compartir proyecto</div>
+              <div class="small text-muted">Invita usuarios y define si solo pueden ver o también editar.</div>
+            </div>
+          </div>
+          <div id="projectMembersList" class="project-members-list mb-3"></div>
+          <div class="row g-2 align-items-end project-share-controls">
+            <div class="col-md-5">
+              <label for="shareUsername" class="form-label mb-1">Usuario</label>
+              <input id="shareUsername" class="form-control form-control-sm" placeholder="Ej: juan.perez">
+            </div>
+            <div class="col-md-4">
+              <label for="shareRole" class="form-label mb-1">Permiso</label>
+              <select id="shareRole" class="form-select form-select-sm">
+                <option value="viewer">Solo ver (Lector)</option>
+                <option value="editor">Ver y editar (Editor)</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <button id="shareProjectBtn" type="button" class="btn btn-primary btn-sm w-100">Compartir</button>
+            </div>
+          </div>
+        </div>
         <div>
           <div class="project-summary-label mb-2">Reportes del proyecto</div>
           <div id="dashboardReportList" class="list-group"></div>
@@ -167,6 +196,9 @@
         </div>
       </div>
       <div id="reportBackActions" class="d-none mb-3">
+        <div id="reportReadOnlyBanner" class="alert alert-info d-none mb-3" role="status">
+          <strong>Solo lectura.</strong> <span id="reportReadOnlyBannerText">Este reporte fue compartido contigo. Puedes ver y exportar PDF, pero no modificar.</span>
+        </div>
         <div class="d-flex gap-2 flex-wrap">
           <button id="backToProjectBtn" type="button" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Volver al proyecto</button>
           <button id="editCurrentReportBtn" type="button" class="btn btn-outline-primary btn-sm d-none"><i class="bi bi-pencil-square me-1"></i>Editar información</button>

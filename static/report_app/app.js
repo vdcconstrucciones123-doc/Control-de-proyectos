@@ -2093,7 +2093,32 @@
             <div class="project-summary-label">Ubicación</div>
             <div class="project-summary-value">${escapeHtml(current.projectLocation || 'Sin ubicación')}</div>
           </div>
+        </div>
+        <div class="project-summary-share-note mt-3">
+          <strong>${current.isOwned ? 'Propietario' : 'Compartido por'}:</strong>
+          ${escapeHtml(current.ownerDisplayName || current.ownerUsername || 'Usuario')}
         </div>`;
+    }
+    const projectShareSection = $('projectShareSection');
+    const projectMembersList = $('projectMembersList');
+    if(projectShareSection){
+      projectShareSection.classList.remove('d-none');
+    }
+    if(projectMembersList){
+      const members = Array.isArray(current.members) ? current.members : [];
+      projectMembersList.innerHTML = members.length
+        ? members.map(member => `
+          <div class="project-member-item">
+            <div>
+              <div class="project-member-name">${escapeHtml(member.username)}</div>
+              <div class="project-member-meta">${escapeHtml(PROJECT_ROLE_LABELS[member.role] || member.role)}${member.isOwner ? ' · Propietario' : ' · Usuario compartido'}</div>
+            </div>
+          </div>`).join('')
+        : '<div class="text-muted small">No hay usuarios compartidos.</div>';
+    }
+    const projectShareControls = projectShareSection?.querySelector('.project-share-controls');
+    if(projectShareControls){
+      projectShareControls.classList.toggle('d-none', !current.canShare);
     }
     if(reportList){
       const reports = Array.isArray(current.reports) ? current.reports : [];

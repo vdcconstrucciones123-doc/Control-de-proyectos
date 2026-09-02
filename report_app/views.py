@@ -5,14 +5,27 @@ from pathlib import Path
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.contrib.auth.views import LoginView
 from django.contrib.staticfiles import finders
 from django.db.models import Prefetch, Q
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from .forms import ProjectForm, ReportMetaForm, ReportTypeForm, SignUpForm
-from .models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportMembership, ReportProject
+from .models import (
+    EntryImage,
+    ProjectMembership,
+    ProjectReport,
+    ReportEntry,
+    ReportFront,
+    ReportMembership,
+    ReportProject,
+    UserProfile,
+)
+
+ROLE_LABELS = dict(ProjectMembership.ROLE_CHOICES)
 
 
 def _project_queryset_for_user(user):
@@ -64,7 +77,10 @@ def _effective_project_role_for_user(project, user):
 
 
 def _can_edit_project(project, user):
-    return _project_role_for_user(project, user) in {ProjectMembership.ROLE_ADMIN, ProjectMembership.ROLE_EDITOR}
+    if project.owner_id == user.id:
+        return True
+    role = _project_role_for_user(project, user)
+    return role in {ProjectMembership.ROLE_ADMIN, ProjectMembership.ROLE_EDITOR}
 
 
 def _can_share_project(project, user):
@@ -288,10 +304,12 @@ def _serialize_report(report, user):
 
 
 def _serialize_project(project, user):
-    role = _project_role_for_user(project, user)
-    can_edit = role in {ProjectMembership.ROLE_ADMIN, ProjectMembership.ROLE_EDITOR}
-    can_share = role == ProjectMembership.ROLE_ADMIN
+    role = _effective_project_role_for_user(project, user)
+    is_owner = project.owner_id == user.id
+    can_edit = _can_edit_project(project, user)
+    can_share = is_owner
     visible_reports = [report for report in project.reports.all() if _user_can_access_report(report, user)]
+    owner_display = project.owner.get_full_name().strip() or project.owner.username
     return {
         "id": project.id,
         "dbId": project.id,
@@ -303,11 +321,15 @@ def _serialize_project(project, user):
         "forWhom": project.for_whom,
         "fromWhom": project.from_whom,
         "ownerUsername": project.owner.username,
+        "ownerDisplayName": owner_display,
+        "sharedByUsername": None if is_owner else project.owner.username,
+        "sharedByDisplayName": None if is_owner else owner_display,
         "accessRole": role,
+        "accessRoleLabel": ROLE_LABELS.get(role, ""),
         "canEdit": can_edit,
         "canShare": can_share,
-        "canDelete": project.owner_id == user.id,
-        "isOwned": project.owner_id == user.id,
+        "canDelete": is_owner,
+        "isOwned": is_owner,
         "members": _serialize_project_members(project),
         "reports": [_serialize_report(report, user) for report in visible_reports],
     }
@@ -391,19 +413,48 @@ def root_redirect(request):
 
 def register(request):
     if request.user.is_authenticated:
-        return redirect("panel_principal")
+        profile = getattr(request.user, "profile", None)
+        if profile and profile.is_approved:
+            return redirect("panel_principal")
+        return redirect("registration_pending")
 
     form = SignUpForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         user = form.save()
+        UserProfile.objects.update_or_create(user=user, defaults={"is_approved": False})
         login(request, user)
-        return redirect("panel_principal")
+        return redirect("registration_pending")
     return render(request, "registration/register.html", {"form": form})
+
+
+def registration_pending(request):
+    if not request.user.is_authenticated:
+        return redirect("login")
+    profile = getattr(request.user, "profile", None)
+    if request.user.is_superuser or (profile and profile.is_approved):
+        return redirect("panel_principal")
+    return render(request, "registration/pending.html")
+
+
+class CustomLoginView(LoginView):
+    template_name = "registration/login.html"
+
+    def form_valid(self, form):
+        user = form.get_user()
+        profile = getattr(user, "profile", None)
+        if not user.is_superuser and (profile is None or not profile.is_approved):
+            form.add_error(None, "Tu cuenta está pendiente de aprobación. Te avisaremos cuando puedas entrar.")
+            return self.form_invalid(form)
+        return super().form_valid(form)
 
 
 @login_required
 @require_http_methods(["GET", "POST"])
 def project_collection_api(request):
+    profile = getattr(request.user, "profile", None)
+    if not request.user.is_superuser and profile and not profile.is_approved:
+        return JsonResponse({"error": "Tu cuenta está pendiente de aprobación."}, status=403)
+
     if request.method == "GET":
         projects = [_serialize_project(project, request.user) for project in _project_queryset_for_user(request.user)]
         return JsonResponse({"projects": projects})

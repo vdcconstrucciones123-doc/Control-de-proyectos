@@ -150,6 +150,27 @@ class EntryImage(models.Model):
         ordering = ["sort_order", "id"]
 
 
+class UserProfile(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
+    is_approved = models.BooleanField(default=False)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_profiles",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        status = "aprobado" if self.is_approved else "pendiente"
+        return f"{self.user.username} · {status}"
+
+
 def _delete_file(file_field):
     if file_field and getattr(file_field, "name", None):
         storage = file_field.storage

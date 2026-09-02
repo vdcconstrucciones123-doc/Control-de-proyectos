@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% block title %}Cuenta pendiente | Site Audit Pro Lite{% endblock %}
+
+{% block pre_content %}{% endblock %}
+
+{% block content %}
+  <section class="auth-screen">
+    <div class="auth-shell auth-shell-register">
+      <div class="auth-brand-panel">
+        <div class="brand-mark" aria-hidden="true">SA</div>
+        <div class="auth-kicker">Registro recibido</div>
+        <h1 class="auth-title">Tu cuenta está en revisión</h1>
+        <p class="auth-copy">Gracias por registrarte. Un administrador debe aprobar tu acceso antes de que puedas usar la plataforma.</p>
+      </div>
+      <div class="auth-form-panel">
+        <div class="auth-form-card">
+          <div class="auth-form-kicker">Estado</div>
+          <h2 class="auth-form-title">Pendiente de aprobación</h2>
+          <p class="mb-3">Usuario: <strong>@{{ request.user.username }}</strong></p>
+          <p class="text-muted small mb-4">Cuando tu cuenta sea aprobada podrás iniciar sesión y ver los proyectos compartidos contigo. Tus proyectos existentes no se eliminan durante este proceso.</p>
+          <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-secondary w-100">Cerrar sesión</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}{% endblock %}
