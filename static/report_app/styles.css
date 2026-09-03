@@ -854,6 +854,92 @@ body:not(.sidebar-collapse) .app-main {
   color: var(--text-muted);
 }
 
+.dashboard-project-item {
+  align-items: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.dashboard-project-item:hover,
+.dashboard-project-item:focus-visible {
+  border-color: #93c5fd;
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.dashboard-project-item > div:first-child {
+  min-width: 0;
+}
+
+.dashboard-project-item .project-member-name,
+.dashboard-project-item .project-member-meta {
+  overflow-wrap: anywhere;
+}
+
+.dashboard-project-actions {
+  flex: 0 0 auto;
+}
+
+.dashboard-project-actions .btn {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 10px;
+}
+
+.dashboard-project-image {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 76px;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  background: #e8ebf2;
+  color: #cbd1dd;
+  font-size: 1.65rem;
+  cursor: pointer;
+}
+
+.dashboard-project-image img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.dashboard-project-image-edit {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.62rem;
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.2);
+}
+
+.dashboard-project-image:hover,
+.dashboard-project-image:focus-visible {
+  outline: 3px solid rgba(31, 111, 235, 0.2);
+  outline-offset: 2px;
+}
+
 #projectAccessBadge {
   border: 1px solid var(--border);
   color: var(--primary-dark);
@@ -1615,6 +1701,89 @@ body:not(.sidebar-collapse) .app-main {
   .brand-mark { width: 48px; height: 48px; font-size: 0.95rem; }
   .brand-name { font-size: 1.1rem; }
   .section-title { font-size: 0.98rem; }
+
+  /* Dashboard de proyectos: compacto y estable en pantallas estrechas */
+  #dashboardHubSection {
+    padding: 0.9rem !important;
+    border-radius: 18px !important;
+  }
+  #dashboardIntroHeader {
+    align-items: center;
+    gap: 0.65rem;
+    margin-bottom: 0.8rem;
+    padding-bottom: 0.75rem;
+  }
+  #dashboardIntroHeader .section-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 0.95rem;
+  }
+  #dashboardIntroHeader .section-desc {
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+  #dashboardIntroActions {
+    margin-bottom: 0.8rem !important;
+  }
+  #dashboardNewProjectBtn {
+    width: 100%;
+  }
+  #dashboardProjectList {
+    gap: 0.55rem !important;
+  }
+  .dashboard-project-item {
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr);
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.75rem !important;
+    border-radius: 14px;
+  }
+  .dashboard-project-image {
+    width: 54px;
+    height: 54px;
+    flex-basis: 54px;
+    border-radius: 13px;
+    font-size: 1.2rem;
+  }
+  .dashboard-project-image-edit {
+    width: 19px;
+    height: 19px;
+    right: -4px;
+    bottom: -4px;
+    font-size: 0.52rem;
+  }
+  .dashboard-project-item .project-member-name {
+    font-size: 0.92rem;
+    line-height: 1.3;
+  }
+  .dashboard-project-item .project-member-meta {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 0.74rem;
+    line-height: 1.35;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .dashboard-project-actions {
+    display: grid !important;
+    grid-template-columns: repeat(3, 40px);
+    grid-column: 1 / -1;
+    gap: 0.4rem !important;
+    justify-content: end;
+  }
+  .dashboard-project-actions .btn {
+    min-height: 40px;
+    width: 40px;
+    height: 40px;
+    padding: 0.45rem 0.55rem;
+    font-size: 0.82rem;
+  }
+  .dashboard-project-actions .dashboard-project-edit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
 
   /* Mejor separación entre controles en formularios móviles */
   #metadataForm .mb-2, #entrySection .mb-2, #equipmentSection .mb-2 { margin-bottom: 0.6rem; }

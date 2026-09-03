@@ -10,6 +10,7 @@ class ReportProject(models.Model):
     company_name = models.CharField(max_length=200, default="VDC CONSTRUCCIONES SAC")
     project_name = models.CharField(max_length=200, blank=True)
     project_location = models.CharField(max_length=200, blank=True)
+    project_image = models.FileField(upload_to="project_images/", blank=True, null=True)
     slug = models.SlugField(max_length=220, unique=True, blank=True)
     report_title = models.CharField(max_length=200, default="REPORTE FOTOGRÁFICO DE OBRA")
     for_whom = models.CharField(max_length=200, blank=True)
@@ -191,6 +192,20 @@ def delete_report_cover_on_replace(sender, instance, **kwargs):
     previous = sender.objects.filter(pk=instance.pk).only("cover_image").first()
     if previous and previous.cover_image and previous.cover_image != instance.cover_image:
         _delete_file(previous.cover_image)
+
+
+@receiver(post_delete, sender=ReportProject)
+def delete_project_image_on_delete(sender, instance, **kwargs):
+    _delete_file(instance.project_image)
+
+
+@receiver(pre_save, sender=ReportProject)
+def delete_project_image_on_replace(sender, instance, **kwargs):
+    if not instance.pk:
+        return
+    previous = sender.objects.filter(pk=instance.pk).only("project_image").first()
+    if previous and previous.project_image and previous.project_image != instance.project_image:
+        _delete_file(previous.project_image)
 
 
 @receiver(post_delete, sender=EntryImage)

@@ -28,6 +28,7 @@
   const UPLOAD_IMAGE_QUALITY = 0.8;
   const UPLOAD_FILE_MIME = 'image/jpeg';
   let pendingCoverPhotoFile = null;
+   let pendingProjectPhotoFile = null;
 
   let state = {
     projects: [],
@@ -200,11 +201,11 @@
     }
   }
   async function createProjectRemote(payload){
-    const data = await requestJson('/api/projects/', { method: 'POST', body: JSON.stringify(payload) });
+     const data = await requestJson('/api/projects/', { method: 'POST', body: payload });
     return data.project;
   }
   async function updateProjectRemote(project, payload){
-    const data = await requestJson(`/api/projects/${project.slug}/`, { method: 'PATCH', body: JSON.stringify(payload) });
+    const data = await requestJson(`/api/projects/${project.slug}/`, { method: 'POST', body: payload });
     return data.project;
   }
   async function deleteProjectRemote(project){
@@ -455,15 +456,17 @@
   }
 
   async function createProject(name, location, slug, routeOptions = {}){
-    const remoteProject = await createProjectRemote({
-      companyName: state.companyName,
-      projectName: name || `Proyecto ${state.projects.length + 1}`,
-      projectLocation: location || '',
-      slug: slug || generateUniqueSlug('proyecto'),
-      reportTitle: state.reportTitle,
-      forWhom: state.forWhom,
-      fromWhom: state.fromWhom,
-    });
+     const payload = new FormData();
+     payload.append('companyName', state.companyName);
+     payload.append('projectName', name || `Proyecto ${state.projects.length + 1}`);
+     payload.append('projectLocation', location || '');
+     payload.append('slug', slug || generateUniqueSlug('proyecto'));
+     payload.append('reportTitle', state.reportTitle);
+     payload.append('forWhom', state.forWhom);
+     payload.append('fromWhom', state.fromWhom);
+     if(pendingProjectPhotoFile) payload.append('projectPhoto', pendingProjectPhotoFile);
+     const remoteProject = await createProjectRemote(payload);
+     pendingProjectPhotoFile = null;
     const project = mergeServerProject(remoteProject);
     project.reports = project.reports || [];
     state.currentProjectId = project.id;
@@ -2053,15 +2056,18 @@
         projectList.innerHTML = '<div class="text-muted small">No hay proyectos creados todavía.</div>';
       } else {
         projectList.innerHTML = state.projects.map(project => `
-          <div class="project-member-item dashboard-project-item">
-            <div>
+          <div class="project-member-item dashboard-project-item" data-open-project="${project.id}" role="button" tabindex="0" aria-label="Entrar al proyecto ${escapeHtml(project.projectName || 'Proyecto sin nombre')}" title="Entrar al proyecto">
+            <button type="button" class="dashboard-project-image ${project.projectImage ? 'has-image' : ''}" data-id="${project.id}" aria-label="Cargar foto del proyecto" title="Cargar foto">
+              ${project.projectImage ? `<img src="${project.projectImage}" alt="">` : '<i class="bi bi-building" aria-hidden="true"></i>'}
+              <span class="dashboard-project-image-edit"><i class="bi bi-camera-fill" aria-hidden="true"></i></span>
+            </button>
+            <div class="dashboard-project-copy">
               <div class="project-member-name">${escapeHtml(project.projectName || 'Proyecto sin nombre')}</div>
               <div class="project-member-meta">${escapeHtml(project.companyName || 'Sin empresa')} · ${escapeHtml(project.projectLocation || 'Sin ubicación')}</div>
             </div>
-            <div class="d-flex gap-2 flex-wrap">
-              <button type="button" data-id="${project.id}" class="btn btn-sm ${project.id === state.currentProjectId ? 'btn-primary' : 'btn-outline-primary'} dashboard-project-open">Abrir</button>
-              ${project.canEdit ? `<button type="button" data-id="${project.id}" class="btn btn-sm btn-outline-secondary dashboard-project-edit"><i class="bi bi-pencil-square"></i></button>` : ''}
-              ${project.canDelete ? `<button type="button" data-id="${project.id}" class="btn btn-sm btn-outline-danger dashboard-project-delete">Eliminar</button>` : ''}
+            <div class="dashboard-project-actions d-flex gap-2 flex-wrap">
+              ${project.canEdit ? `<button type="button" data-id="${project.id}" class="btn btn-sm btn-outline-secondary dashboard-project-edit" aria-label="Editar proyecto" title="Editar proyecto"><i class="bi bi-pencil-square" aria-hidden="true"></i></button>` : ''}
+              ${project.canDelete ? `<button type="button" data-id="${project.id}" class="btn btn-sm btn-outline-danger dashboard-project-delete" aria-label="Eliminar proyecto" title="Eliminar proyecto"><i class="bi bi-trash3" aria-hidden="true"></i></button>` : ''}
             </div>
           </div>
         `).join('');
@@ -2749,6 +2755,7 @@
       state.showProjectForm = true;
       state.selectionStage = 'project';
       state.currentProjectId = null;
+      pendingProjectPhotoFile = null;
       resetProjectForm();
       renderAll();
       $('dashboardProjectName')?.focus();
@@ -2768,8 +2775,14 @@
           return;
         }
         try {
-          const remoteProject = await updateProjectRemote(current, { companyName: company, projectName, projectLocation });
+          const payload = new FormData();
+          payload.append('companyName', company);
+          payload.append('projectName', projectName);
+          payload.append('projectLocation', projectLocation);
+          if(pendingProjectPhotoFile) payload.append('projectPhoto', pendingProjectPhotoFile);
+          const remoteProject = await updateProjectRemote(current, payload);
           Object.assign(current, remoteProject, { reports: current.reports || [] });
+          pendingProjectPhotoFile = null;
           state.companyName = company;
           state.projectName = projectName;
           state.projectLocation = projectLocation;
@@ -2800,6 +2813,26 @@
       renderAll();
     });
     $('dashboardProjectList')?.addEventListener('click', e => {
+      const projectCard = e.target.closest('.dashboard-project-item');
+      if(projectCard && !e.target.closest('button')){
+        const id = Number(projectCard.dataset.openProject);
+        if(id){
+          switchProject(id, { openDashboardOnly: true });
+          setProjectRoute(getCurrentProject());
+          renderAll();
+        }
+        return;
+      }
+      const imageBtn = e.target.closest('.dashboard-project-image');
+      if(imageBtn){
+        const project = getProjectById(Number(imageBtn.dataset.id));
+        if(project && project.canEdit){
+          state.currentProjectId = project.id;
+          pendingProjectPhotoFile = null;
+          $('dashboardProjectPhotoInput')?.click();
+        }
+        return;
+      }
       const deleteBtn = e.target.closest('.dashboard-project-delete');
       if(deleteBtn){
         const id = Number(deleteBtn.dataset.id);
@@ -2834,6 +2867,18 @@
         setProjectRoute(getCurrentProject());
         renderAll();
         return;
+      }
+    });
+    $('dashboardProjectList')?.addEventListener('keydown', e => {
+      if(e.key !== 'Enter' && e.key !== ' ') return;
+      const projectCard = e.target.closest('.dashboard-project-item');
+      if(!projectCard || e.target.closest('button')) return;
+      e.preventDefault();
+      const id = Number(projectCard.dataset.openProject);
+      if(id){
+        switchProject(id, { openDashboardOnly: true });
+        setProjectRoute(getCurrentProject());
+        renderAll();
       }
     });
     $('dashboardBackToProjectsBtn')?.addEventListener('click', () => {
@@ -2914,6 +2959,30 @@
             renderAll();
           })
           .catch(error => alert(error.message));
+        $('dashboardProjectPhotoInput')?.addEventListener('change', async () => {
+          const file = $('dashboardProjectPhotoInput').files[0];
+          if(!file) return;
+          try {
+            pendingProjectPhotoFile = await optimizeImageUploadFile(file, { maxDimension: 1200, quality: 0.82 });
+            const project = getProjectById(state.currentProjectId);
+            if(project){
+              const payload = new FormData();
+              payload.append('companyName', project.companyName || 'VDC CONSTRUCCIONES SAC');
+              payload.append('projectName', project.projectName || 'Proyecto sin nombre');
+              payload.append('projectLocation', project.projectLocation || '');
+              payload.append('projectPhoto', pendingProjectPhotoFile);
+              const remoteProject = await updateProjectRemote(project, payload);
+              Object.assign(project, remoteProject, { reports: project.reports || [] });
+              pendingProjectPhotoFile = null;
+              save();
+              renderAll();
+            }
+          } catch(error) {
+            alert(error.message || 'No se pudo cargar la foto del proyecto.');
+          } finally {
+            $('dashboardProjectPhotoInput').value = '';
+          }
+        });
         return;
       }
       const button = e.target.closest('.dashboard-report-open');

@@ -317,6 +317,7 @@ def _serialize_project(project, user):
         "companyName": project.company_name,
         "projectName": project.project_name,
         "projectLocation": project.project_location,
+        "projectImage": project.project_image.url if project.project_image else "",
         "reportTitle": project.report_title,
         "forWhom": project.for_whom,
         "fromWhom": project.from_whom,
@@ -459,7 +460,7 @@ def project_collection_api(request):
         projects = [_serialize_project(project, request.user) for project in _project_queryset_for_user(request.user)]
         return JsonResponse({"projects": projects})
 
-    payload = _parse_json(request)
+    payload = _request_data(request)
     if payload is None:
         return HttpResponseBadRequest("JSON inválido")
 
@@ -472,6 +473,7 @@ def project_collection_api(request):
         company_name=(payload.get("companyName") or "VDC CONSTRUCCIONES SAC").strip() or "VDC CONSTRUCCIONES SAC",
         project_name=project_name,
         project_location=(payload.get("projectLocation") or "").strip(),
+        project_image=request.FILES.get("projectPhoto"),
         report_title=(payload.get("reportTitle") or "REPORTE FOTOGRÁFICO DE OBRA").strip() or "REPORTE FOTOGRÁFICO DE OBRA",
         for_whom=(payload.get("forWhom") or "").strip(),
         from_whom=(payload.get("fromWhom") or "").strip(),
@@ -485,7 +487,7 @@ def project_collection_api(request):
 def project_report_export_pdf_real_api(request, project_slug, report_id):
     project = _get_project_or_404(request.user, project_slug)
     report = _get_user_report_or_404(project, request.user, report_id)
-    payload = _parse_json(request)
+    payload = _request_data(request)
     if payload is None:
         return HttpResponseBadRequest("JSON inválido")
 
@@ -531,7 +533,7 @@ def project_report_export_pdf_real_api(request, project_slug, report_id):
 
 
 @login_required
-@require_http_methods(["PATCH", "DELETE"])
+@require_http_methods(["POST", "PATCH", "DELETE"])
 def project_detail_api(request, project_slug):
     project = _get_project_or_404(request.user, project_slug)
 
@@ -544,7 +546,7 @@ def project_detail_api(request, project_slug):
     if not _can_edit_project(project, request.user):
         return JsonResponse({"error": "No tienes permisos para editar este proyecto."}, status=403)
 
-    payload = _parse_json(request)
+    payload = _request_data(request)
     if payload is None:
         return HttpResponseBadRequest("JSON inválido")
     project_name = (payload.get("projectName") or "").strip()
@@ -557,6 +559,12 @@ def project_detail_api(request, project_slug):
     project.report_title = (payload.get("reportTitle") or project.report_title).strip() or project.report_title
     project.for_whom = (payload.get("forWhom") or project.for_whom).strip()
     project.from_whom = (payload.get("fromWhom") or project.from_whom).strip()
+    if payload.get("clearProjectImage") in {True, "true", "1", 1}:
+        if project.project_image:
+            project.project_image.delete(save=False)
+        project.project_image = None
+    if request.FILES.get("projectPhoto"):
+        project.project_image = request.FILES["projectPhoto"]
     project.save()
     project = _get_project_or_404(request.user, project.slug)
     return JsonResponse({"project": _serialize_project(project, request.user)})
