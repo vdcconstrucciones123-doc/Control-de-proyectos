@@ -1,6 +1,17 @@
 {% extends 'base.html' %}
 {% load django_bootstrap5 %}
-
+      <button id="appUserProfileBtn" type="button" class="app-user-panel user-panel" aria-label="Abrir mi perfil" title="Mi perfil">
+        <div class="app-user-avatar" aria-hidden="true">
+          <span class="app-user-avatar-initial{% if request.user.profile.profile_image %} d-none{% endif %}">{{ request.user.username|default:'U'|first|upper }}</span>
+          {% if request.user.profile.profile_image %}<img class="app-user-avatar-image" src="{{ request.user.profile.profile_image.url }}" alt="Foto de perfil">{% else %}<img class="app-user-avatar-image d-none" alt="">{% endif %}
+        </div>
+        <div class="app-user-copy">
+          <div class="app-user-name">
+            {% if request.user.first_name %}{{ request.user.first_name }} {{ request.user.last_name }}{% else %}{{ request.user.username }}{% endif %}
+          </div>
+          <div class="app-user-meta">@{{ request.user.username }}</div>
+        </div>
+      </button>
 {% block title %}Site Audit Pro Lite{% endblock %}
 {% block body_class %}hold-transition sidebar-mini layout-fixed layout-navbar-fixed{% endblock %}
 
@@ -25,19 +36,21 @@
 
       <div class="sidebar">
 
-      <div class="app-user-panel user-panel">
+      <button id="appUserProfileBtn" type="button" class="app-user-panel user-panel" aria-label="Abrir mi perfil" title="Mi perfil">
         <div class="app-user-avatar" aria-hidden="true">
-          {{ request.user.username|default:'U'|first|upper }}
+          {% if request.user.profile.profile_image %}
+          <img class="app-user-avatar-image" src="{{ request.user.profile.profile_image.url }}" alt="Foto de perfil">
+          {% else %}
+          <span class="app-user-avatar-initial">{{ request.user.username|default:'U'|first|upper }}</span>
+          {% endif %}
         </div>
         <div class="app-user-copy">
-          <div class="app-user-label">Sesión activa</div>
           <div class="app-user-name">
             {% if request.user.first_name %}{{ request.user.first_name }} {{ request.user.last_name }}{% else %}{{ request.user.username }}{% endif %}
           </div>
           <div class="app-user-meta">@{{ request.user.username }}</div>
-          {% if request.user.email %}<div class="app-user-meta">{{ request.user.email }}</div>{% endif %}
         </div>
-      </div>
+      </button>
 
       <div id="sidebarDashboardGroup" class="app-sidebar-group">
         <nav class="mt-2">
@@ -97,6 +110,38 @@
 
     <div class="content-wrapper app-main">
       <div class="content app-main-container">
+    <section id="profileSection" class="card app-section-card mb-3 p-4 d-none">
+      <div class="section-card-header">
+        <span class="section-icon"><i class="bi bi-person-circle"></i></span>
+        <div>
+          <h2 class="section-title mb-0">Mi perfil</h2>
+          <p class="section-desc mb-0">Consulta la información de tu cuenta.</p>
+        </div>
+      </div>
+      <div class="profile-card-content">
+        <button id="profilePhotoBtn" type="button" class="profile-avatar-large" aria-label="Cambiar foto de perfil" title="Cambiar foto de perfil">
+          <span id="profileAvatarInitial">{{ request.user.username|default:'U'|first|upper }}</span>
+          <img id="profileAvatarImage" class="d-none" alt="">
+          <span class="profile-avatar-edit"><i class="bi bi-camera-fill" aria-hidden="true"></i></span>
+        </button>
+        <div class="profile-details">
+          <div class="profile-detail-label">Nombres</div>
+          <input id="profileFirstName" class="form-control form-control-sm" value="{{ request.user.first_name }}">
+          <div class="profile-detail-label">Apellidos</div>
+          <input id="profileLastName" class="form-control form-control-sm" value="{{ request.user.last_name }}">
+          <div class="profile-detail-label">Usuario</div>
+          <div id="profileUsername" class="profile-detail-value">@{{ request.user.username }}</div>
+          <div class="profile-detail-label">Correo electrónico</div>
+          <div id="profileEmail" class="profile-detail-value">{{ request.user.email|default:'No registrado' }}</div>
+          <div class="profile-detail-label">Estado de la cuenta</div>
+          <div class="profile-status-value"><span class="profile-status-dot"></span>Activa</div>
+        </div>
+      </div>
+      <input id="profilePhotoInput" type="file" accept="image/*" class="d-none">
+      <button id="profileSaveBtn" type="button" class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>Guardar cambios</button>
+      <span id="profileSaveStatus" class="profile-save-status" role="status" aria-live="polite"></span>
+      <button id="profileBackBtn" type="button" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Volver a proyectos</button>
+    </section>
     <section id="dashboardHubSection" class="card app-section-card mb-3 p-4">
       <div id="readOnlyBanner" class="alert alert-info d-none mb-3" role="status">
         <strong>Solo lectura.</strong> <span id="readOnlyBannerText">Este proyecto fue compartido contigo. Puedes ver y exportar, pero no modificar.</span>
@@ -113,6 +158,7 @@
       </div>
       <div id="dashboardProjectFormCard" class="project-edit-card d-none mb-3">
         <input id="dashboardProjectPhotoInput" type="file" accept="image/*" class="d-none">
+        <div id="dashboardProjectFormTitle" class="dashboard-project-form-title">Nuevo proyecto</div>
         <div class="row g-3">
           <div class="col-md-4">
             <label for="dashboardCompanyName" class="form-label">Empresa</label>
@@ -154,7 +200,15 @@
             <button id="dashboardNewReportBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-file-earmark-plus me-1"></i>Nuevo reporte</button>
           </div>
         </div>
+        <div class="project-dashboard-tabs" role="tablist" aria-label="Secciones del proyecto">
+          <button id="projectSummaryTab" type="button" class="project-dashboard-tab is-active" role="tab">Resumen</button>
+          <button id="projectPlansTab" type="button" class="project-dashboard-tab" role="tab">Planos <span id="projectPlansCount" class="project-plans-count">0</span></button>
+        </div>
         <div id="dashboardProjectSummary" class="project-summary-card mb-3"></div>
+        <button id="projectShareToggle" type="button" class="project-share-toggle mb-3" aria-expanded="false">
+          <span><i class="bi bi-people me-2" aria-hidden="true"></i>Gestionar acceso</span>
+          <i class="bi bi-chevron-down" aria-hidden="true"></i>
+        </button>
         <div id="projectShareSection" class="project-share-card d-none mb-3">
           <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
             <div>
@@ -182,9 +236,45 @@
           </div>
         </div>
         <div>
-          <div class="project-summary-label mb-2">Reportes del proyecto</div>
+          <div id="dashboardReportsLabel" class="project-summary-label mb-2">Reportes del proyecto</div>
           <div id="dashboardReportList" class="list-group"></div>
         </div>
+        <section id="dashboardPlansSection" class="dashboard-plans-section d-none" aria-labelledby="projectPlansTab">
+          <div class="dashboard-plans-toolbar">
+            <div>
+              <h3 class="dashboard-plans-title">Planos del proyecto</h3>
+              <p class="dashboard-plans-desc">Guarda y consulta los planos en PDF de este proyecto.</p>
+            </div>
+            <button id="dashboardUploadPlanBtn" type="button" class="btn btn-primary btn-sm"><i class="bi bi-upload me-1"></i>Subir plano</button>
+          </div>
+          <input id="dashboardPlanInput" type="file" accept="application/pdf,.pdf" class="d-none">
+          <div class="plans-workspace">
+            <aside id="dashboardPlansList" class="dashboard-plans-list"></aside>
+            <div class="plan-viewer-shell">
+              <div id="planViewerEmpty" class="plan-viewer-empty"><i class="bi bi-map" aria-hidden="true"></i><span>Selecciona un plano para visualizarlo.</span></div>
+              <div id="planViewer" class="plan-viewer d-none">
+                <div class="plan-viewer-toolbar">
+                  <strong id="planViewerName">Plano</strong>
+                  <span id="planViewerHint">Haz clic sobre el plano para colocar un punto</span>
+                  <button id="planMarkerModeBtn" type="button" class="plan-marker-mode-btn" title="Activar modo para colocar puntos" aria-pressed="false"><i class="bi bi-geo-alt me-1"></i>Agregar punto</button>
+                  <div class="plan-zoom-controls" aria-label="Controles de zoom">
+                    <button id="planZoomOut" type="button" title="Alejar" aria-label="Alejar"><i class="bi bi-dash-lg"></i></button>
+                    <span id="planZoomValue">100%</span>
+                    <button id="planZoomIn" type="button" title="Acercar" aria-label="Acercar"><i class="bi bi-plus-lg"></i></button>
+                    <button id="planZoomReset" type="button" title="Restablecer zoom" aria-label="Restablecer zoom"><i class="bi bi-arrows-angle-contract"></i></button>
+                  </div>
+                </div>
+                <div id="planCanvasWrap" class="plan-canvas-wrap">
+                  <div id="planCanvasStage" class="plan-canvas-stage">
+                    <canvas id="planCanvas"></canvas>
+                    <div id="planSvg" class="plan-svg"></div>
+                    <div id="planMarkers" class="plan-markers"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </section>
 

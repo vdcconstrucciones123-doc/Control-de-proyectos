@@ -29,6 +29,19 @@
   const UPLOAD_FILE_MIME = 'image/jpeg';
   let pendingCoverPhotoFile = null;
    let pendingProjectPhotoFile = null;
+  let pendingProfilePhotoFile = null;
+  let showProjectShare = false;
+  let projectDashboardView = 'summary';
+  let selectedPlanId = null;
+  let planZoom = 1;
+  let planMarkerMode = false;
+  let planPanX = 0;
+  let planPanY = 0;
+  const planRenderQuality = 3;
+  const planMaxZoom = 10;
+  const planPdfCache = new Map();
+  let planRenderToken = 0;
+  let pendingProjectPhotoId = null;
 
   let state = {
     projects: [],
@@ -79,6 +92,125 @@
     if(value === 'avances') return 'Reporte de avances';
     return '';
   }
+  function formatPlanDate(value){
+    if(!value) return 'Sin fecha';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Sin fecha' : date.toLocaleDateString('es-PE');
+  }
+  async function renderPlanViewer(plan, project){
+    const empty = $('planViewerEmpty');
+    const viewer = $('planViewer');
+    const canvas = $('planCanvas');
+    if(!plan || !window.pdfjsLib || !empty || !viewer || !canvas){
+      empty?.classList.remove('d-none');
+      viewer?.classList.add('d-none');
+      return;
+    }
+    empty.classList.add('d-none');
+    viewer.classList.remove('d-none');
+    $('planViewerName').textContent = plan.name;
+    const renderToken = ++planRenderToken;
+    $('planViewerHint').textContent = 'Cargando plano...';
+    try {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      let pdfPromise = planPdfCache.get(plan.url);
+      if(!pdfPromise){
+        pdfPromise = window.pdfjsLib.getDocument(plan.url).promise;
+        planPdfCache.set(plan.url, pdfPromise);
+      }
+      const pdf = await pdfPromise;
+      if(renderToken !== planRenderToken) return;
+      const page = await pdf.getPage(1);
+      const baseViewport = page.getViewport({ scale: 1 });
+      const width = Math.max(320, Math.min(1100, $('planCanvasWrap').clientWidth || 700));
+      const baseScale = width / baseViewport.width;
+      const baseHeight = baseViewport.height * baseScale;
+      const viewport = page.getViewport({ scale: baseScale * planRenderQuality });
+      const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 3);
+      const rasterViewport = page.getViewport({ scale: baseScale * planRenderQuality * devicePixelRatio });
+      const svgContainer = $('planSvg');
+      let renderedAsSvg = false;
+      if(svgContainer && window.pdfjsLib.SVGGraphics){
+        try {
+          const svgGraphics = new window.pdfjsLib.SVGGraphics(page.commonObjs, page.objs);
+          const operatorList = await page.getOperatorList();
+          const svg = await svgGraphics.getSVG(operatorList, page.getViewport({ scale: baseScale }));
+          if(renderToken !== planRenderToken) return;
+          svgContainer.replaceChildren(svg);
+          svgContainer.style.width = `${width}px`;
+          svgContainer.style.height = `${baseHeight}px`;
+          renderedAsSvg = true;
+        } catch(error) {
+          svgContainer.replaceChildren();
+        }
+      }
+      const context = canvas.getContext('2d');
+      canvas.width = rasterViewport.width;
+      canvas.height = rasterViewport.height;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${baseHeight}px`;
+      canvas.style.display = renderedAsSvg ? 'none' : 'block';
+      if(!renderedAsSvg) await page.render({ canvasContext: context, viewport: rasterViewport }).promise;
+      if(renderToken !== planRenderToken) return;
+      const layer = $('planMarkers');
+      const stage = $('planCanvasStage');
+      if(stage){
+        stage.style.width = `${width}px`;
+        stage.style.height = `${baseHeight}px`;
+      }
+      if(layer){
+        layer.style.width = `${width}px`;
+        layer.style.height = `${baseHeight}px`;
+        layer.style.left = '0px';
+        layer.style.top = '0px';
+      }
+      applyPlanTransform();
+      renderPlanMarkers(plan.markers || [], project?.canEdit);
+      $('planZoomValue').textContent = `${Math.round(planZoom * 100)}%`;
+      const markerModeButton = $('planMarkerModeBtn');
+      if(markerModeButton){
+        markerModeButton.classList.toggle('d-none', !project?.canEdit);
+        markerModeButton.setAttribute('aria-pressed', String(planMarkerMode));
+      }
+      $('planCanvasWrap')?.classList.toggle('is-marker-mode', !!planMarkerMode && !!project?.canEdit);
+    } catch(error) {
+      $('planViewerHint').textContent = 'No se pudo visualizar el PDF. Ábrelo desde la lista.';
+    }
+  }
+  function renderPlanMarkers(markers, canEdit){
+    const layer = $('planMarkers');
+    if(!layer) return;
+    layer.innerHTML = markers.filter(marker => Number(marker.page) === 1).map((marker, index) => `
+      <button type="button" class="plan-marker" data-marker-id="${marker.id}" style="left:${marker.x * 100}%;top:${marker.y * 100}%" title="Eliminar punto ${index + 1}" aria-label="Eliminar punto ${index + 1}">${index + 1}</button>`).join('');
+    $('planViewerHint').textContent = canEdit
+      ? (planMarkerMode ? 'Selecciona una ubicación en el plano' : 'Activa "Agregar punto" para marcar una ubicación')
+      : 'Vista de solo lectura';
+  }
+  function applyPlanTransform(){
+    const stage = $('planCanvasStage');
+    if(stage) stage.style.transform = `translate(${planPanX}px, ${planPanY}px) scale(${planZoom})`;
+    const value = $('planZoomValue');
+    if(value) value.textContent = `${Math.round(planZoom * 100)}%`;
+  }
+  function setPlanZoom(nextZoom, anchorX, anchorY){
+    const wrap = $('planCanvasWrap');
+    const stage = $('planCanvasStage');
+    if(!wrap || !stage) return;
+    const bounds = wrap.getBoundingClientRect();
+    const contentX = anchorX - bounds.left + wrap.scrollLeft;
+    const contentY = anchorY - bounds.top + wrap.scrollTop;
+    const localX = (contentX - stage.offsetLeft - planPanX) / planZoom;
+    const localY = (contentY - stage.offsetTop - planPanY) / planZoom;
+    planZoom = Math.max(0.5, Math.min(planMaxZoom, nextZoom));
+    planPanX = contentX - stage.offsetLeft - localX * planZoom;
+    planPanY = contentY - stage.offsetTop - localY * planZoom;
+    applyPlanTransform();
+  }
+  function refreshSelectedPlanViewer(){
+    const project = getCurrentProject();
+    const plan = project?.plans?.find(item => item.id === selectedPlanId);
+    if(plan) renderPlanViewer(plan, project);
+  }
   function getCsrfToken(){
     return document.cookie.split('; ').find(row => row.startsWith('csrftoken='))?.split('=')[1] || '';
   }
@@ -127,6 +259,35 @@
       }
     }
     return response.blob();
+  }
+  async function loadProfile(){
+    const profile = await requestJson('/api/profile/', { method: 'GET' });
+    updateProfileAvatar(profile?.profileImage);
+    $('profileFirstName').value = profile.firstName || '';
+    $('profileLastName').value = profile.lastName || '';
+    $('profileUsername').textContent = `@${profile.username}`;
+    $('profileEmail').textContent = profile.email || 'No registrado';
+    if(profile.profileImage){
+      $('profileAvatarImage').src = profile.profileImage;
+      $('profileAvatarImage').classList.remove('d-none');
+      $('profileAvatarInitial').classList.add('d-none');
+    }
+  }
+  function updateProfileAvatar(imageUrl){
+    document.querySelectorAll('.app-user-avatar').forEach(avatar => {
+      const image = avatar.querySelector('.app-user-avatar-image');
+      const initial = avatar.querySelector('.app-user-avatar-initial');
+      if(!image || !initial) return;
+      if(imageUrl){
+        image.src = imageUrl;
+        image.classList.remove('d-none');
+        initial.classList.add('d-none');
+      } else {
+        image.removeAttribute('src');
+        image.classList.add('d-none');
+        initial.classList.remove('d-none');
+      }
+    });
   }
   function mergeServerProject(serverProject){
     const existing = state.projects.find(project => project.slug === serverProject.slug || project.dbId === serverProject.id);
@@ -212,6 +373,19 @@
     if(!project?.slug) return;
     await requestJson(`/api/projects/${project.slug}/`, { method: 'DELETE' });
   }
+  async function createProjectPlanRemote(project, file){
+    const formData = new FormData();
+    formData.append('planFile', file);
+    formData.append('name', file.name);
+    const data = await requestJson(`/api/projects/${project.slug}/plans/`, { method: 'POST', body: formData });
+    return data.plan;
+  }
+  async function deleteProjectPlanRemote(project, planId){
+    await requestJson(`/api/projects/${project.slug}/plans/${planId}/`, { method: 'DELETE' });
+  }
+  async function deleteProjectPlanMarkerRemote(project, planId, markerId){
+    await requestJson(`/api/projects/${project.slug}/plans/${planId}/markers/${markerId}/`, { method: 'DELETE' });
+  }
   async function shareProjectRemote(project, payload){
     const data = await requestJson(`/api/projects/${project.slug}/members/`, { method: 'POST', body: JSON.stringify(payload) });
     return data;
@@ -264,7 +438,8 @@
       editingEntryId: null,
       showIssueForm: false,
       editingProjectInfo: false,
-      editingReportMeta: false
+      editingReportMeta: false,
+      showProfileView: false
     };
   }
 
@@ -337,6 +512,7 @@
     if(!project) return;
     state.editingProjectInfo = false;
     state.editingReportMeta = false;
+    state.showProfileView = false;
     state.companyName = project.companyName || 'VDC CONSTRUCCIONES SAC';
     state.projectName = project.projectName || '';
     state.projectLocation = project.projectLocation || '';
@@ -457,7 +633,7 @@
 
   async function createProject(name, location, slug, routeOptions = {}){
      const payload = new FormData();
-     payload.append('companyName', state.companyName);
+    payload.append('companyName', state.companyName || 'VDC CONSTRUCCIONES SAC');
      payload.append('projectName', name || `Proyecto ${state.projects.length + 1}`);
      payload.append('projectLocation', location || '');
      payload.append('slug', slug || generateUniqueSlug('proyecto'));
@@ -1007,6 +1183,10 @@
     const { preserveDraft = false } = options;
     const project = getProjectById(Number(projectId));
     if(!project) return false;
+    showProjectShare = false;
+    projectDashboardView = 'summary';
+    planZoom = 1;
+    selectedPlanId = null;
     const draftState = preserveDraft ? captureReportDraftState() : null;
     state.currentProjectId = project.id;
     state.selectionStage = 'reportType';
@@ -1556,6 +1736,11 @@
   }
 
   function renderAll(){
+    const profileSection = $('profileSection');
+    const showProfile = !!state.showProfileView;
+    profileSection?.classList.toggle('d-none', !showProfile);
+    $('dashboardHubSection')?.classList.toggle('d-none', showProfile || isOnReportWorkspaceRoute());
+    $('reportWorkspaceSection')?.classList.toggle('d-none', showProfile || !isOnReportWorkspaceRoute());
     renderSidebarContext();
     renderProjectSelect();
     renderProjectPanel();
@@ -1599,8 +1784,6 @@
     }
     $('exportPdfBtn')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
     $('exportPdfMode')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
-    $('dashboardHubSection')?.classList.toggle('d-none', isOnReportWorkspaceRoute());
-    $('reportWorkspaceSection')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
     renderReportEditorSections();
     applyWorkspaceView();
     const companyNameInput = $('companyName');
@@ -2024,14 +2207,25 @@
     const dashboardCompanyName = $('dashboardCompanyName');
     const dashboardProjectName = $('dashboardProjectName');
     const dashboardProjectLocation = $('dashboardProjectLocation');
+    const projectFormTitle = $('dashboardProjectFormTitle');
     const reportHub = $('dashboardReportHub');
     const dashboardReportType = $('dashboardReportType');
     const currentProjectName = $('dashboardCurrentProjectName');
     const projectSummary = $('dashboardProjectSummary');
     const reportList = $('dashboardReportList');
+    const projectShareSection = $('projectShareSection');
+    const projectShareToggle = $('projectShareToggle');
+    const projectPlansTab = $('projectPlansTab');
+    const projectSummaryTab = $('projectSummaryTab');
+    const plansSection = $('dashboardPlansSection');
+    const reportsLabel = $('dashboardReportsLabel');
+    const plansList = $('dashboardPlansList');
+    const plansCount = $('projectPlansCount');
+    const uploadPlanButton = $('dashboardUploadPlanBtn');
     const current = getCurrentProject();
     const showProjectDashboard = !!current && !isOnReportWorkspaceRoute() && !state.currentReportId;
-    const showProjectChooser = !current || isOnReportWorkspaceRoute() || state.showProjectForm;
+    const showProjectChooser = !state.showProjectForm && (!current || isOnReportWorkspaceRoute());
+    $('dashboardHubSection')?.classList.toggle('dashboard-project-mode', showProjectDashboard);
 
     if(introHeader){
       introHeader.classList.toggle('d-none', !showProjectChooser);
@@ -2045,6 +2239,9 @@
 
     if(projectFormCard){
       projectFormCard.classList.toggle('d-none', !state.showProjectForm);
+    }
+    if(projectFormTitle){
+      projectFormTitle.textContent = state.editingProjectInfo ? 'Editar proyecto' : 'Nuevo proyecto';
     }
     if(dashboardCompanyName) dashboardCompanyName.value = state.companyName || 'VDC CONSTRUCCIONES SAC';
     if(dashboardProjectName) dashboardProjectName.value = state.projectName || '';
@@ -2075,7 +2272,7 @@
     }
 
     if(reportHub){
-      reportHub.classList.toggle('d-none', !showProjectDashboard);
+      reportHub.classList.toggle('d-none', !showProjectDashboard || state.showProjectForm);
     }
     if(!showProjectDashboard){
       if(currentProjectName) currentProjectName.textContent = '';
@@ -2085,6 +2282,31 @@
     }
 
     if(currentProjectName) currentProjectName.textContent = current.projectName || 'Proyecto sin nombre';
+    const showingPlans = projectDashboardView === 'plans';
+    projectSummaryTab?.classList.toggle('is-active', !showingPlans);
+    projectPlansTab?.classList.toggle('is-active', showingPlans);
+    projectSummary?.classList.toggle('d-none', showingPlans);
+    projectShareToggle?.classList.toggle('d-none', showingPlans);
+    projectShareSection?.classList.toggle('d-none', showingPlans || !showProjectShare);
+    reportsLabel?.classList.toggle('d-none', showingPlans);
+    reportList?.classList.toggle('d-none', showingPlans);
+    plansSection?.classList.toggle('d-none', !showingPlans);
+    const plans = Array.isArray(current.plans) ? current.plans : [];
+    uploadPlanButton?.classList.toggle('d-none', !current.canEdit);
+    if(plansCount) plansCount.textContent = plans.length;
+    if(plansList){
+      plansList.innerHTML = plans.length ? plans.map(plan => `
+        <div class="dashboard-plan-item">
+          <div class="dashboard-plan-icon"><i class="bi bi-file-earmark-pdf-fill" aria-hidden="true"></i></div>
+          <div class="dashboard-plan-copy">
+            <button type="button" class="dashboard-plan-name" data-plan-id="${plan.id}">${escapeHtml(plan.name)}</button>
+            <div class="dashboard-plan-meta">PDF · ${formatPlanDate(plan.createdAt)}</div>
+          </div>
+          ${current.canEdit ? `<button type="button" class="btn btn-sm btn-outline-danger dashboard-plan-delete" data-id="${plan.id}" title="Eliminar plano" aria-label="Eliminar plano"><i class="bi bi-trash3" aria-hidden="true"></i></button>` : ''}
+        </div>`).join('') : '<div class="dashboard-plans-empty"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i><span>Aún no hay planos cargados.</span></div>';
+    }
+    const selectedPlan = plans.find(plan => plan.id === selectedPlanId) || null;
+    renderPlanViewer(selectedPlan, current);
     if(dashboardReportType){
       dashboardReportType.value = state.reportType || '';
     }
@@ -2105,10 +2327,13 @@
           ${escapeHtml(current.ownerDisplayName || current.ownerUsername || 'Usuario')}
         </div>`;
     }
-    const projectShareSection = $('projectShareSection');
     const projectMembersList = $('projectMembersList');
     if(projectShareSection){
-      projectShareSection.classList.remove('d-none');
+      projectShareSection.classList.toggle('d-none', !showProjectShare);
+    }
+    if(projectShareToggle){
+      projectShareToggle.classList.toggle('is-open', showProjectShare);
+      projectShareToggle.setAttribute('aria-expanded', String(showProjectShare));
     }
     if(projectMembersList){
       const members = Array.isArray(current.members) ? current.members : [];
@@ -2561,6 +2786,7 @@
   }
 
   function bindEvents(){
+    loadProfile().catch(error => console.warn('No se pudo cargar el perfil', error));
     document.querySelectorAll('[data-widget="pushmenu"]').forEach(toggle => {
       toggle.addEventListener('click', toggleSidebarMenu);
     });
@@ -2574,6 +2800,58 @@
           setSidebarState(false);
         }
       });
+    });
+
+    $('appUserProfileBtn')?.addEventListener('click', () => {
+      state.showProfileView = true;
+      state.showProjectForm = false;
+      renderAll();
+      loadProfile().catch(error => alert(error.message));
+      setPanelRoute();
+      if(window.innerWidth <= 992) setSidebarState(false);
+    });
+
+    $('profileBackBtn')?.addEventListener('click', () => {
+      state.showProfileView = false;
+      state.currentProjectId = null;
+      state.currentReportId = null;
+      state.selectionStage = 'project';
+      state.showProjectForm = false;
+      setPanelRoute();
+      renderAll();
+    });
+    $('profilePhotoBtn')?.addEventListener('click', () => $('profilePhotoInput')?.click());
+    $('profilePhotoInput')?.addEventListener('change', async () => {
+      const file = $('profilePhotoInput').files[0];
+      if(!file) return;
+      pendingProfilePhotoFile = await optimizeImageUploadFile(file, { maxDimension: 800, quality: 0.82 });
+      $('profileAvatarImage').src = URL.createObjectURL(pendingProfilePhotoFile);
+      $('profileAvatarImage').classList.remove('d-none');
+      $('profileAvatarInitial').classList.add('d-none');
+    });
+    $('profileSaveBtn')?.addEventListener('click', async () => {
+      const saveButton = $('profileSaveBtn');
+      const saveStatus = $('profileSaveStatus');
+      const payload = new FormData();
+      payload.append('firstName', $('profileFirstName').value.trim());
+      payload.append('lastName', $('profileLastName').value.trim());
+      if(pendingProfilePhotoFile) payload.append('profilePhoto', pendingProfilePhotoFile);
+      try {
+        saveButton.disabled = true;
+        saveStatus.textContent = 'Guardando...';
+        const profile = await requestJson('/api/profile/', { method: 'POST', body: payload });
+        pendingProfilePhotoFile = null;
+        updateProfileAvatar(profile.profileImage);
+        await loadProfile();
+        const name = [profile.firstName, profile.lastName].filter(Boolean).join(' ') || profile.username;
+        document.querySelectorAll('.app-user-name').forEach(element => { element.textContent = name; });
+        saveStatus.textContent = 'Cambios guardados';
+      } catch(error) {
+        saveStatus.textContent = 'No se pudo guardar';
+        alert(error.message);
+      } finally {
+        saveButton.disabled = false;
+      }
     });
 
     const closeMobileSidebarOnOutsideTap = event => {
@@ -2807,9 +3085,18 @@
       renderAll();
     });
     $('dashboardCancelProjectBtn')?.addEventListener('click', () => {
+      const wasEditing = state.editingProjectInfo;
       state.showProjectForm = false;
       state.editingProjectInfo = false;
-      resetProjectForm();
+      if(wasEditing){
+        state.currentProjectId = null;
+        state.currentReportId = null;
+        state.selectionStage = 'project';
+        setPanelRoute();
+      } else {
+        resetProjectForm();
+      }
+      save();
       renderAll();
     });
     $('dashboardProjectList')?.addEventListener('click', e => {
@@ -2827,7 +3114,7 @@
       if(imageBtn){
         const project = getProjectById(Number(imageBtn.dataset.id));
         if(project && project.canEdit){
-          state.currentProjectId = project.id;
+          pendingProjectPhotoId = project.id;
           pendingProjectPhotoFile = null;
           $('dashboardProjectPhotoInput')?.click();
         }
@@ -2924,6 +3211,143 @@
       renderAll();
       showAppScreen();
     });
+    $('projectShareToggle')?.addEventListener('click', () => {
+      showProjectShare = !showProjectShare;
+      renderAll();
+    });
+    $('projectSummaryTab')?.addEventListener('click', () => {
+      projectDashboardView = 'summary';
+      renderAll();
+    });
+    $('projectPlansTab')?.addEventListener('click', () => {
+      projectDashboardView = 'plans';
+      renderAll();
+    });
+    $('planZoomIn')?.addEventListener('click', () => {
+      const bounds = $('planCanvasWrap')?.getBoundingClientRect();
+      if(bounds) setPlanZoom(planZoom + 0.25, bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+    });
+    $('planZoomOut')?.addEventListener('click', () => {
+      const bounds = $('planCanvasWrap')?.getBoundingClientRect();
+      if(bounds) setPlanZoom(planZoom - 0.25, bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+    });
+    $('planZoomReset')?.addEventListener('click', () => {
+      planZoom = 1;
+      planPanX = 0;
+      planPanY = 0;
+      applyPlanTransform();
+    });
+    $('planMarkerModeBtn')?.addEventListener('click', () => {
+      planMarkerMode = !planMarkerMode;
+      $('planMarkerModeBtn').setAttribute('aria-pressed', String(planMarkerMode));
+      renderAll();
+    });
+    const planCanvasWrap = $('planCanvasWrap');
+    let isPanningPlan = false;
+    let lastPanX = 0;
+    let lastPanY = 0;
+    planCanvasWrap?.addEventListener('pointerdown', e => {
+      if(e.button !== 1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      isPanningPlan = true;
+      lastPanX = e.clientX;
+      lastPanY = e.clientY;
+      planCanvasWrap.setPointerCapture(e.pointerId);
+      planCanvasWrap.classList.add('is-panning');
+    });
+    planCanvasWrap?.addEventListener('pointermove', e => {
+      if(!isPanningPlan) return;
+      planPanX += e.clientX - lastPanX;
+      planPanY += e.clientY - lastPanY;
+      lastPanX = e.clientX;
+      lastPanY = e.clientY;
+      applyPlanTransform();
+    });
+    planCanvasWrap?.addEventListener('wheel', e => {
+      e.preventDefault();
+      const nextZoom = e.deltaY < 0 ? planZoom + 0.15 : planZoom - 0.15;
+      setPlanZoom(nextZoom, e.clientX, e.clientY);
+    }, { passive: false });
+    planCanvasWrap?.addEventListener('pointerup', e => {
+      if(e.button !== 1) return;
+      isPanningPlan = false;
+      planCanvasWrap.releasePointerCapture(e.pointerId);
+      planCanvasWrap.classList.remove('is-panning');
+    });
+    $('dashboardUploadPlanBtn')?.addEventListener('click', () => {
+      const project = getCurrentProject();
+      if(project?.canEdit) $('dashboardPlanInput')?.click();
+    });
+    $('dashboardPlanInput')?.addEventListener('change', async () => {
+      const file = $('dashboardPlanInput').files[0];
+      const project = getCurrentProject();
+      if(!file || !project) return;
+      try {
+        if(!file.name.toLowerCase().endsWith('.pdf')) throw new Error('Solo se permiten archivos PDF.');
+        const plan = await createProjectPlanRemote(project, file);
+        project.plans = [plan, ...(project.plans || [])];
+        selectedPlanId = plan.id;
+        renderAll();
+      } catch(error) {
+        alert(error.message);
+      } finally {
+        $('dashboardPlanInput').value = '';
+      }
+    });
+    $('dashboardPlansList')?.addEventListener('click', e => {
+      const planButton = e.target.closest('[data-plan-id]');
+      if(planButton){
+        selectedPlanId = Number(planButton.dataset.planId);
+        planZoom = 1;
+        planPanX = 0;
+        planPanY = 0;
+        planMarkerMode = false;
+        renderAll();
+        return;
+      }
+      const deleteButton = e.target.closest('.dashboard-plan-delete');
+      if(!deleteButton) return;
+      const project = getCurrentProject();
+      const planId = Number(deleteButton.dataset.id);
+      if(!project || !planId || !confirm('¿Eliminar este plano?')) return;
+      deleteProjectPlanRemote(project, planId).then(() => {
+        project.plans = (project.plans || []).filter(plan => plan.id !== planId);
+        renderAll();
+      }).catch(error => alert(error.message));
+    });
+    $('planCanvasWrap')?.addEventListener('click', async e => {
+      const project = getCurrentProject();
+      const plan = project?.plans?.find(item => item.id === selectedPlanId);
+      if(!project?.canEdit || !plan) return;
+      const markerButton = e.target.closest('.plan-marker');
+      if(markerButton){
+        const markerId = Number(markerButton.dataset.markerId);
+        if(!markerId || !confirm('¿Eliminar este punto?')) return;
+        try {
+          await deleteProjectPlanMarkerRemote(project, plan.id, markerId);
+          plan.markers = (plan.markers || []).filter(marker => marker.id !== markerId);
+          renderPlanMarkers(plan.markers, project.canEdit);
+        } catch(error) {
+          alert(error.message);
+        }
+        return;
+      }
+      if(!planMarkerMode) return;
+      const rect = $('planCanvas').getBoundingClientRect();
+      const marker = {
+        page: 1,
+        x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+        y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
+      };
+      try {
+        const data = await requestJson(`/api/projects/${project.slug}/plans/${plan.id}/markers/`, { method: 'POST', body: JSON.stringify(marker) });
+        plan.markers = [...(plan.markers || []), data.marker];
+        renderPlanMarkers(plan.markers, project.canEdit);
+      } catch(error) {
+        alert(error.message);
+      }
+    });
     $('dashboardReportList')?.addEventListener('click', e => {
       const deleteButton = e.target.closest('[data-report-delete]');
       if(deleteButton){
@@ -2959,30 +3383,6 @@
             renderAll();
           })
           .catch(error => alert(error.message));
-        $('dashboardProjectPhotoInput')?.addEventListener('change', async () => {
-          const file = $('dashboardProjectPhotoInput').files[0];
-          if(!file) return;
-          try {
-            pendingProjectPhotoFile = await optimizeImageUploadFile(file, { maxDimension: 1200, quality: 0.82 });
-            const project = getProjectById(state.currentProjectId);
-            if(project){
-              const payload = new FormData();
-              payload.append('companyName', project.companyName || 'VDC CONSTRUCCIONES SAC');
-              payload.append('projectName', project.projectName || 'Proyecto sin nombre');
-              payload.append('projectLocation', project.projectLocation || '');
-              payload.append('projectPhoto', pendingProjectPhotoFile);
-              const remoteProject = await updateProjectRemote(project, payload);
-              Object.assign(project, remoteProject, { reports: project.reports || [] });
-              pendingProjectPhotoFile = null;
-              save();
-              renderAll();
-            }
-          } catch(error) {
-            alert(error.message || 'No se pudo cargar la foto del proyecto.');
-          } finally {
-            $('dashboardProjectPhotoInput').value = '';
-          }
-        });
         return;
       }
       const button = e.target.closest('.dashboard-report-open');
@@ -2999,6 +3399,31 @@
       save();
       setReportRoute(project, reportId);
       renderAll();
+    });
+    $('dashboardProjectPhotoInput')?.addEventListener('change', async () => {
+      const file = $('dashboardProjectPhotoInput').files[0];
+      if(!file) return;
+      try {
+        pendingProjectPhotoFile = await optimizeImageUploadFile(file, { maxDimension: 1200, quality: 0.82 });
+        const project = getProjectById(pendingProjectPhotoId);
+        if(project){
+          const payload = new FormData();
+          payload.append('companyName', project.companyName || 'VDC CONSTRUCCIONES SAC');
+          payload.append('projectName', project.projectName || 'Proyecto sin nombre');
+          payload.append('projectLocation', project.projectLocation || '');
+          payload.append('projectPhoto', pendingProjectPhotoFile);
+          const remoteProject = await updateProjectRemote(project, payload);
+          Object.assign(project, remoteProject, { reports: project.reports || [] });
+          pendingProjectPhotoFile = null;
+          pendingProjectPhotoId = null;
+          save();
+          renderAll();
+        }
+      } catch(error) {
+        alert(error.message || 'No se pudo cargar la foto del proyecto.');
+      } finally {
+        $('dashboardProjectPhotoInput').value = '';
+      }
     });
     $('createAnotherProjectBtn')?.addEventListener('click', () => {
       state.showProjectForm = true;

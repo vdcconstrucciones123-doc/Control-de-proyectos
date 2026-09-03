@@ -36,6 +36,30 @@ class ReportProject(models.Model):
         return self.project_name or self.company_name
 
 
+class ProjectPlan(models.Model):
+    project = models.ForeignKey(ReportProject, on_delete=models.CASCADE, related_name="plans")
+    name = models.CharField(max_length=200, blank=True)
+    file = models.FileField(upload_to="project_plans/")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return self.name or self.file.name.rsplit("/", 1)[-1]
+
+
+class ProjectPlanMarker(models.Model):
+    plan = models.ForeignKey(ProjectPlan, on_delete=models.CASCADE, related_name="markers")
+    page = models.PositiveIntegerField(default=1)
+    x = models.FloatField()
+    y = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["page", "created_at", "id"]
+
+
 class ProjectMembership(models.Model):
     ROLE_VIEWER = "viewer"
     ROLE_EDITOR = "editor"
@@ -153,6 +177,7 @@ class EntryImage(models.Model):
 
 class UserProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
+    profile_image = models.FileField(upload_to="profile_images/", blank=True, null=True)
     is_approved = models.BooleanField(default=False)
     approved_at = models.DateTimeField(null=True, blank=True)
     approved_by = models.ForeignKey(
@@ -206,6 +231,25 @@ def delete_project_image_on_replace(sender, instance, **kwargs):
     previous = sender.objects.filter(pk=instance.pk).only("project_image").first()
     if previous and previous.project_image and previous.project_image != instance.project_image:
         _delete_file(previous.project_image)
+
+
+@receiver(post_delete, sender=ProjectPlan)
+def delete_project_plan_on_delete(sender, instance, **kwargs):
+    _delete_file(instance.file)
+
+
+@receiver(post_delete, sender=UserProfile)
+def delete_profile_image_on_delete(sender, instance, **kwargs):
+    _delete_file(instance.profile_image)
+
+
+@receiver(pre_save, sender=UserProfile)
+def delete_profile_image_on_replace(sender, instance, **kwargs):
+    if not instance.pk:
+        return
+    previous = sender.objects.filter(pk=instance.pk).only("profile_image").first()
+    if previous and previous.profile_image and previous.profile_image != instance.profile_image:
+        _delete_file(previous.profile_image)
 
 
 @receiver(post_delete, sender=EntryImage)

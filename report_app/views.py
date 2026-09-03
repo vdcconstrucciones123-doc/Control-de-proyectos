@@ -17,6 +17,8 @@ from .forms import ProjectForm, ReportMetaForm, ReportTypeForm, SignUpForm
 from .models import (
     EntryImage,
     ProjectMembership,
+    ProjectPlan,
+    ProjectPlanMarker,
     ProjectReport,
     ReportEntry,
     ReportFront,
@@ -33,6 +35,7 @@ def _project_queryset_for_user(user):
         Q(owner=user) | Q(memberships__user=user) | Q(reports__memberships__user=user)
     ).select_related("owner").prefetch_related(
         "memberships__user",
+        Prefetch("plans", queryset=ProjectPlan.objects.prefetch_related("markers")),
         Prefetch(
             "reports",
             queryset=ProjectReport.objects.prefetch_related(
@@ -144,6 +147,26 @@ def _parse_json(request):
         return json.loads(request.body.decode("utf-8") or "{}")
     except json.JSONDecodeError:
         return None
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def profile_api(request):
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if request.method == "POST":
+        request.user.first_name = (request.POST.get("firstName") or "").strip()
+        request.user.last_name = (request.POST.get("lastName") or "").strip()
+        request.user.save(update_fields=["first_name", "last_name"])
+        if request.FILES.get("profilePhoto"):
+            profile.profile_image = request.FILES["profilePhoto"]
+            profile.save(update_fields=["profile_image"])
+    return JsonResponse({
+        "firstName": request.user.first_name,
+        "lastName": request.user.last_name,
+        "username": request.user.username,
+        "email": request.user.email,
+        "profileImage": profile.profile_image.url if profile.profile_image else "",
+    })
 
 
 def _request_data(request):
@@ -318,6 +341,13 @@ def _serialize_project(project, user):
         "projectName": project.project_name,
         "projectLocation": project.project_location,
         "projectImage": project.project_image.url if project.project_image else "",
+        "plans": [{
+            "id": plan.id,
+            "name": plan.name or plan.file.name.rsplit("/", 1)[-1],
+            "url": plan.file.url,
+            "createdAt": plan.created_at.isoformat(),
+            "markers": [{"id": marker.id, "page": marker.page, "x": marker.x, "y": marker.y} for marker in plan.markers.all()],
+        } for plan in project.plans.all()],
         "reportTitle": project.report_title,
         "forWhom": project.for_whom,
         "fromWhom": project.from_whom,
@@ -480,6 +510,72 @@ def project_collection_api(request):
     )
     project = _get_project_or_404(request.user, project.slug)
     return JsonResponse({"project": _serialize_project(project, request.user)}, status=201)
+
+
+@login_required
+@require_http_methods(["POST"])
+def project_plans_api(request, project_slug):
+    project = _get_project_or_404(request.user, project_slug)
+    if request.method == "POST":
+        if not _can_edit_project(project, request.user):
+            return JsonResponse({"error": "No tienes permisos para subir planos."}, status=403)
+        plan_file = request.FILES.get("planFile")
+        if not plan_file:
+            return JsonResponse({"error": "Selecciona un archivo PDF."}, status=400)
+        if not plan_file.name.lower().endswith(".pdf"):
+            return JsonResponse({"error": "Solo se permiten archivos PDF."}, status=400)
+        plan = ProjectPlan.objects.create(
+            project=project,
+            name=(request.POST.get("name") or plan_file.name).strip(),
+            file=plan_file,
+        )
+        return JsonResponse({"plan": {
+            "id": plan.id,
+            "name": plan.name or plan.file.name.rsplit("/", 1)[-1],
+            "url": plan.file.url,
+            "createdAt": plan.created_at.isoformat(),
+        }}, status=201)
+
+
+@login_required
+@require_http_methods(["DELETE"])
+def project_plan_detail_api(request, project_slug, plan_id):
+    project = _get_project_or_404(request.user, project_slug)
+    if not _can_edit_project(project, request.user):
+        return JsonResponse({"error": "No tienes permisos para eliminar planos."}, status=403)
+    plan = get_object_or_404(project.plans, pk=plan_id)
+    plan.delete()
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_http_methods(["DELETE"])
+def project_plan_marker_detail_api(request, project_slug, plan_id, marker_id):
+    project = _get_project_or_404(request.user, project_slug)
+    if not _can_edit_project(project, request.user):
+        return JsonResponse({"error": "No tienes permisos para eliminar puntos."}, status=403)
+    marker = get_object_or_404(ProjectPlanMarker, pk=marker_id, plan__project=project, plan_id=plan_id)
+    marker.delete()
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_http_methods(["POST"])
+def project_plan_markers_api(request, project_slug, plan_id):
+    project = _get_project_or_404(request.user, project_slug)
+    plan = get_object_or_404(project.plans, pk=plan_id)
+    if not _can_edit_project(project, request.user):
+        return JsonResponse({"error": "No tienes permisos para colocar puntos."}, status=403)
+    payload = _parse_json(request)
+    if payload is None:
+        return HttpResponseBadRequest("JSON inválido")
+    marker = ProjectPlanMarker.objects.create(
+        plan=plan,
+        page=max(1, int(payload.get("page") or 1)),
+        x=max(0, min(1, float(payload.get("x") or 0))),
+        y=max(0, min(1, float(payload.get("y") or 0))),
+    )
+    return JsonResponse({"marker": {"id": marker.id, "page": marker.page, "x": marker.x, "y": marker.y}}, status=201)
 
 
 @login_required
