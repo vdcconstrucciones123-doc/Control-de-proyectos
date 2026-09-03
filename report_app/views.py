@@ -285,6 +285,11 @@ def _serialize_entry(entry):
         "buildingLocation": entry.building_location or "",
         "quantity": entry.quantity or 1,
         "status": entry.status,
+        "incidentDate": entry.incident_date.isoformat() if entry.incident_date else "",
+        "responsibleCompany": entry.responsible_company or "",
+        "planId": entry.plan_id,
+        "planX": entry.plan_x,
+        "planY": entry.plan_y,
         "desc": entry.description,
         "images": [image.image.url for image in entry.images.all() if image.image],
         "ts": entry.updated_at.isoformat(),
@@ -823,6 +828,27 @@ def report_entries_api(request, project_slug, report_id):
     description = (payload.get("desc") or "").strip()
     item_name = (payload.get("itemName") or payload.get("item_name") or "").strip()
     building_location = (payload.get("buildingLocation") or payload.get("building_location") or "").strip()
+    incident_date = None
+    incident_date_value = (payload.get("incidentDate") or payload.get("incident_date") or "").strip()
+    if incident_date_value:
+        try:
+            incident_date = datetime.strptime(incident_date_value, "%Y-%m-%d").date()
+        except ValueError:
+            return JsonResponse({"error": "La fecha del issue no es válida."}, status=400)
+    responsible_company = (payload.get("responsibleCompany") or "").strip()
+    try:
+        plan_id = int(payload.get("planId")) if payload.get("planId") else None
+        plan_x = float(payload.get("planX")) if payload.get("planX") not in (None, "") else None
+        plan_y = float(payload.get("planY")) if payload.get("planY") not in (None, "") else None
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "La ubicación del plano no es válida."}, status=400)
+    if plan_id is not None:
+        plan = get_object_or_404(project.plans.all(), pk=plan_id)
+        if plan_x is None or plan_y is None or not (0 <= plan_x <= 1 and 0 <= plan_y <= 1):
+            return JsonResponse({"error": "Selecciona un punto válido dentro del plano."}, status=400)
+        if not building_location:
+            point_count = report.entries.filter(plan_id=plan_id, plan_x__isnull=False, plan_y__isnull=False).count()
+            building_location = f"Punto {point_count + 1}"
     try:
         quantity = int(payload.get("quantity") or 1)
     except (TypeError, ValueError):
@@ -860,8 +886,14 @@ def report_entries_api(request, project_slug, report_id):
 
     if not front_id or not status:
         return JsonResponse({"error": "Frente y estado son obligatorios."}, status=400)
+    if report.report_type == ProjectReport.TYPE_INCIDENT and not incident_date:
+        return JsonResponse({"error": "La fecha del issue es obligatoria para una incidencia."}, status=400)
     front = get_object_or_404(report.fronts.all(), pk=front_id)
-    entry = ReportEntry.objects.create(report=report, front=front, status=status, description=description)
+    entry = ReportEntry.objects.create(
+        report=report, front=front, status=status, description=description,
+        incident_date=incident_date, responsible_company=responsible_company,
+        plan_id=plan_id, plan_x=plan_x, plan_y=plan_y,
+    )
     for index, image in enumerate(request.FILES.getlist("images")):
         EntryImage.objects.create(entry=entry, image=image, sort_order=index)
     entry = ReportEntry.objects.prefetch_related("images").get(pk=entry.pk)
@@ -889,6 +921,27 @@ def report_entry_detail_api(request, project_slug, report_id, entry_id):
     description = (payload.get("desc") or entry.description or "").strip()
     item_name = (payload.get("itemName") or payload.get("item_name") or entry.item_name or "").strip()
     building_location = (payload.get("buildingLocation") or payload.get("building_location") or entry.building_location or "").strip()
+    incident_date = entry.incident_date
+    incident_date_value = (payload.get("incidentDate") or payload.get("incident_date") or "").strip()
+    if incident_date_value:
+        try:
+            incident_date = datetime.strptime(incident_date_value, "%Y-%m-%d").date()
+        except ValueError:
+            return JsonResponse({"error": "La fecha del issue no es válida."}, status=400)
+    responsible_company = (payload.get("responsibleCompany") if payload.get("responsibleCompany") is not None else entry.responsible_company or "").strip()
+    try:
+        plan_id = int(payload.get("planId")) if payload.get("planId") else None
+        plan_x = float(payload.get("planX")) if payload.get("planX") not in (None, "") else None
+        plan_y = float(payload.get("planY")) if payload.get("planY") not in (None, "") else None
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "La ubicación del plano no es válida."}, status=400)
+    if plan_id is not None:
+        get_object_or_404(project.plans.all(), pk=plan_id)
+        if plan_x is None or plan_y is None or not (0 <= plan_x <= 1 and 0 <= plan_y <= 1):
+            return JsonResponse({"error": "Selecciona un punto válido dentro del plano."}, status=400)
+        if not building_location:
+            point_count = report.entries.exclude(pk=entry.pk).filter(plan_id=plan_id, plan_x__isnull=False, plan_y__isnull=False).count()
+            building_location = f"Punto {point_count + 1}"
     try:
         quantity = int(payload.get("quantity") if payload.get("quantity") is not None else entry.quantity or 1)
     except (TypeError, ValueError):
@@ -926,6 +979,13 @@ def report_entry_detail_api(request, project_slug, report_id, entry_id):
     entry.front = get_object_or_404(report.fronts.all(), pk=front_id)
     entry.status = status
     entry.description = description
+    if report.report_type == ProjectReport.TYPE_INCIDENT and not incident_date:
+        return JsonResponse({"error": "La fecha del issue es obligatoria para una incidencia."}, status=400)
+    entry.incident_date = incident_date
+    entry.responsible_company = responsible_company
+    entry.plan_id = plan_id
+    entry.plan_x = plan_x
+    entry.plan_y = plan_y
     entry.save()
 
     replace_images = str(payload.get("replaceImages", "false")).lower() in {"1", "true", "yes"}
