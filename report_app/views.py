@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlencode
 
 import requests
 from django.conf import settings
@@ -604,17 +605,19 @@ def project_plan_file_api(request, project_slug, plan_id):
     plan = get_object_or_404(project.plans, pk=plan_id)
     try:
         if getattr(settings, "USE_CLOUDINARY", False):
-            from cloudinary.utils import cloudinary_url
+            import cloudinary.api
+            from cloudinary.utils import base_api_url, now, sign_request
 
-            signed_url, _ = cloudinary_url(
+            resource = cloudinary.api.resource(
                 plan.file.name,
                 resource_type="raw",
                 type="upload",
-                version=1,
-                secure=True,
-                sign_url=True,
             )
-            cloudinary_response = requests.get(signed_url, timeout=30)
+            download_params = sign_request(
+                {"asset_id": resource["asset_id"], "timestamp": now()}, {}
+            )
+            download_url = f"{base_api_url('asset/download')}?{urlencode(download_params)}"
+            cloudinary_response = requests.get(download_url, timeout=30)
             cloudinary_response.raise_for_status()
             file_content = cloudinary_response.content
         else:
