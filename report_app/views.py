@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.views import LoginView
 from django.contrib.staticfiles import finders
 from django.db.models import Prefetch, Q
-from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.urls import reverse
@@ -29,6 +30,7 @@ from .models import (
 )
 
 ROLE_LABELS = dict(ProjectMembership.ROLE_CHOICES)
+logger = logging.getLogger(__name__)
 
 
 def _project_queryset_for_user(user):
@@ -600,12 +602,17 @@ def project_plan_file_api(request, project_slug, plan_id):
     plan = get_object_or_404(project.plans, pk=plan_id)
     try:
         plan_file = plan.file.open("rb")
-    except (OSError, ValueError):
-        return HttpResponse("El archivo del plano no está disponible.", status=404)
+        file_content = plan_file.read()
+    except Exception:
+        logger.exception("No se pudo descargar el plano %s del proyecto %s", plan_id, project.slug)
+        return JsonResponse({"error": "El archivo del plano no está disponible en el almacenamiento."}, status=404)
 
     filename = (plan.name or Path(plan.file.name).name).replace('"', "")
-    response = FileResponse(plan_file, content_type="application/pdf")
+    response = HttpResponse(file_content, content_type="application/pdf")
     response["Content-Disposition"] = f'inline; filename="{filename}"'
+    response["Content-Length"] = str(len(file_content))
+    response["X-Content-Type-Options"] = "nosniff"
+    plan_file.close()
     return response
 
 
