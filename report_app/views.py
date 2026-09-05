@@ -3,6 +3,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+import requests
+from django.conf import settings
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
@@ -601,8 +603,24 @@ def project_plan_file_api(request, project_slug, plan_id):
     project = _get_project_or_404(request.user, project_slug)
     plan = get_object_or_404(project.plans, pk=plan_id)
     try:
-        plan_file = plan.file.open("rb")
-        file_content = plan_file.read()
+        if getattr(settings, "USE_CLOUDINARY", False):
+            from cloudinary.utils import cloudinary_url
+
+            signed_url, _ = cloudinary_url(
+                plan.file.name,
+                resource_type="raw",
+                type="upload",
+                version=1,
+                secure=True,
+                sign_url=True,
+            )
+            cloudinary_response = requests.get(signed_url, timeout=30)
+            cloudinary_response.raise_for_status()
+            file_content = cloudinary_response.content
+        else:
+            plan_file = plan.file.open("rb")
+            file_content = plan_file.read()
+            plan_file.close()
     except Exception:
         logger.exception("No se pudo descargar el plano %s del proyecto %s", plan_id, project.slug)
         return JsonResponse({"error": "El archivo del plano no está disponible en el almacenamiento."}, status=404)
@@ -612,7 +630,6 @@ def project_plan_file_api(request, project_slug, plan_id):
     response["Content-Disposition"] = f'inline; filename="{filename}"'
     response["Content-Length"] = str(len(file_content))
     response["X-Content-Type-Options"] = "nosniff"
-    plan_file.close()
     return response
 
 
