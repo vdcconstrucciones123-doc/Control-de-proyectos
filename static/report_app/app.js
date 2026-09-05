@@ -305,7 +305,14 @@
       ...options
     });
     const text = await response.text();
-    const data = text ? JSON.parse(text) : {};
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch(error) {
+      throw new Error(response.redirected
+        ? 'La sesión expiró. Recarga la página e inténtalo nuevamente.'
+        : `El servidor devolvió una respuesta no válida (${response.status}).`);
+    }
     if(!response.ok){
       throw new Error(data.error || 'No se pudo completar la operación.');
     }

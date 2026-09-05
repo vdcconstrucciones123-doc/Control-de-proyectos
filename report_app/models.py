@@ -214,8 +214,12 @@ def _delete_file(file_field):
     if file_field and getattr(file_field, "name", None):
         storage = file_field.storage
         name = file_field.name
-        if storage.exists(name):
-            storage.delete(name)
+        try:
+            if storage.exists(name):
+                storage.delete(name)
+        except Exception:
+            # File cleanup must not prevent deleting the database record.
+            pass
 
 
 @receiver(post_delete, sender=ProjectReport)
