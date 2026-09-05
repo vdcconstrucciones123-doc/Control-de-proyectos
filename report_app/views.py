@@ -8,9 +8,10 @@ from django.contrib.auth.models import User
 from django.contrib.auth.views import LoginView
 from django.contrib.staticfiles import finders
 from django.db.models import Prefetch, Q
-from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
 from .forms import ProjectForm, ReportMetaForm, ReportTypeForm, SignUpForm
@@ -340,6 +341,10 @@ def _serialize_report(report, user):
     }
 
 
+def _project_plan_url(project, plan):
+    return reverse("project_plan_file_api", kwargs={"project_slug": project.slug, "plan_id": plan.id})
+
+
 def _serialize_project(project, user):
     role = _effective_project_role_for_user(project, user)
     is_owner = project.owner_id == user.id
@@ -358,7 +363,7 @@ def _serialize_project(project, user):
         "plans": [{
             "id": plan.id,
             "name": plan.name or plan.file.name.rsplit("/", 1)[-1],
-            "url": plan.file.url,
+            "url": _project_plan_url(project, plan),
             "createdAt": plan.created_at.isoformat(),
             "markers": [{"id": marker.id, "page": marker.page, "x": marker.x, "y": marker.y} for marker in plan.markers.all()],
         } for plan in project.plans.all()],
@@ -583,9 +588,25 @@ def project_plans_api(request, project_slug):
         return JsonResponse({"plan": {
             "id": plan.id,
             "name": plan.name or plan.file.name.rsplit("/", 1)[-1],
-            "url": plan.file.url,
+            "url": _project_plan_url(project, plan),
             "createdAt": plan.created_at.isoformat(),
         }}, status=201)
+
+
+@login_required
+@require_http_methods(["GET"])
+def project_plan_file_api(request, project_slug, plan_id):
+    project = _get_project_or_404(request.user, project_slug)
+    plan = get_object_or_404(project.plans, pk=plan_id)
+    try:
+        plan_file = plan.file.open("rb")
+    except (OSError, ValueError):
+        return HttpResponse("El archivo del plano no está disponible.", status=404)
+
+    filename = (plan.name or Path(plan.file.name).name).replace('"', "")
+    response = FileResponse(plan_file, content_type="application/pdf")
+    response["Content-Disposition"] = f'inline; filename="{filename}"'
+    return response
 
 
 @login_required

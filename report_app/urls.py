@@ -14,6 +14,7 @@ urlpatterns = [
     path("api/projects/<slug:project_slug>/responsibles/", views.project_responsibles_api, name="project_responsibles_api"),
     path("api/projects/<slug:project_slug>/responsibles/<int:responsible_id>/", views.project_responsible_detail_api, name="project_responsible_detail_api"),
     path("api/projects/<slug:project_slug>/plans/", views.project_plans_api, name="project_plans_api"),
+    path("api/projects/<slug:project_slug>/plans/<int:plan_id>/file/", views.project_plan_file_api, name="project_plan_file_api"),
     path("api/projects/<slug:project_slug>/plans/<int:plan_id>/", views.project_plan_detail_api, name="project_plan_detail_api"),
     path("api/projects/<slug:project_slug>/plans/<int:plan_id>/markers/", views.project_plan_markers_api, name="project_plan_markers_api"),
     path("api/projects/<slug:project_slug>/plans/<int:plan_id>/markers/<int:marker_id>/", views.project_plan_marker_detail_api, name="project_plan_marker_detail_api"),
