@@ -43,8 +43,10 @@
   const planMaxZoom = 10;
   const planPdfCache = new Map();
   let planRenderToken = 0;
+  let previewRenderToken = 0;
   let issuePlanPoint = null;
   let pendingProjectPhotoId = null;
+  let pendingRemovedEntryImageIds = new Set();
 
   let state = {
     projects: [],
@@ -65,6 +67,7 @@
     workspaceView: 'fronts',
     currentFrontId: null,
     selectedEntryId: null,
+    editingFrontId: null,
     laborDateFrom: '',
     laborDateTo: '',
     forWhom: '',
@@ -100,13 +103,25 @@
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? 'Sin fecha' : date.toLocaleDateString('es-PE');
   }
-  async function renderPlanViewer(plan, project){
+  function getClampedViewport(page, scale, maxDimension = 4096, maxArea = 16000000){
+    let viewport = page.getViewport({ scale });
+    const limitRatio = Math.max(1, Math.max(viewport.width, viewport.height) / maxDimension, Math.sqrt((viewport.width * viewport.height) / maxArea));
+    if(limitRatio > 1){
+      viewport = page.getViewport({ scale: scale / limitRatio });
+    }
+    return viewport;
+  }
+  let lastPlanRenderSignature = null;
+  let planViewerInFlightSignature = null;
+  let planViewerInFlightPromise = null;
+  function renderPlanViewer(plan, project){
     const empty = $('planViewerEmpty');
     const viewer = $('planViewer');
     const canvas = $('planCanvas');
     if(!plan || !window.pdfjsLib || !empty || !viewer || !canvas){
       empty?.classList.remove('d-none');
       viewer?.classList.add('d-none');
+      lastPlanRenderSignature = null;
       return;
     }
     empty.classList.add('d-none');
@@ -114,64 +129,94 @@
     $('planViewerName').textContent = plan.name;
     const originalLink = $('planOriginalLink');
     if(originalLink) originalLink.href = plan.url;
+    const issueMarkerSignature = (project?.reports || []).flatMap(report => (report.type === 'incidencia' || report.type === 'avances')
+      ? (report.entries || []).filter(entry => Number(entry.planId) === Number(plan.id) && entry.planX != null && entry.planY != null).map(entry => `${entry.id}:${entry.planX}:${entry.planY}:${entry.buildingLocation}:${entry.status}`)
+      : []);
+    const renderSignature = JSON.stringify({
+      planId: plan.id,
+      canEdit: !!project?.canEdit,
+      markerMode: planMarkerMode,
+      width: $('planCanvasWrap')?.clientWidth || 0,
+      issueMarkerSignature,
+      planMarkers: (plan.markers || []).map(marker => `${marker.id}:${marker.x}:${marker.y}`)
+    });
+    // Avoid re-fetching/re-rasterizing the same plan on every renderAll() pass, which overlapped renders and left mobile devices stuck on "Cargando plano...".
+    if(renderSignature === lastPlanRenderSignature && canvas.width > 0){
+      return;
+    }
+    // Coalesce simultaneous identical calls (e.g. renderAll() firing from several places at once) into a single in-flight render.
+    if(renderSignature === planViewerInFlightSignature && planViewerInFlightPromise){
+      return planViewerInFlightPromise;
+    }
     const renderToken = ++planRenderToken;
     $('planViewerHint').textContent = 'Cargando plano...';
-    try {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      let pdfPromise = planPdfCache.get(plan.url);
-      if(!pdfPromise){
-        pdfPromise = window.pdfjsLib.getDocument(plan.url).promise;
-        planPdfCache.set(plan.url, pdfPromise);
+    planViewerInFlightSignature = renderSignature;
+    planViewerInFlightPromise = (async () => {
+      try {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        let pdfPromise = planPdfCache.get(plan.url);
+        if(!pdfPromise){
+          pdfPromise = window.pdfjsLib.getDocument(plan.url).promise;
+          planPdfCache.set(plan.url, pdfPromise);
+        }
+        const pdf = await pdfPromise;
+        if(renderToken !== planRenderToken) return;
+        const page = await pdf.getPage(1);
+        const baseViewport = page.getViewport({ scale: 1 });
+        $('planCanvasWrap')?.classList.toggle('is-landscape-plan', baseViewport.width > baseViewport.height);
+        const width = Math.max(320, Math.min(1100, $('planCanvasWrap').clientWidth || 700));
+        const baseScale = width / baseViewport.width;
+        const baseHeight = baseViewport.height * baseScale;
+        const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        const svgContainer = $('planSvg');
+        if(svgContainer) svgContainer.replaceChildren();
+        const tileLayer = $('planTiles');
+        if(tileLayer) tileLayer.replaceChildren();
+        const rasterViewport = getClampedViewport(page, baseScale * planRenderQuality * devicePixelRatio);
+        const context = canvas.getContext('2d');
+        canvas.width = rasterViewport.width;
+        canvas.height = rasterViewport.height;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${baseHeight}px`;
+        canvas.style.display = 'block';
+        await page.render({ canvasContext: context, viewport: rasterViewport }).promise;
+        if(renderToken !== planRenderToken) return;
+        const layer = $('planMarkers');
+        const stage = $('planCanvasStage');
+        if(stage){
+          stage.style.width = `${width}px`;
+          stage.style.height = `${baseHeight}px`;
+        }
+        if(layer){
+          layer.style.width = `${width}px`;
+          layer.style.height = `${baseHeight}px`;
+          layer.style.left = '0px';
+          layer.style.top = '0px';
+        }
+        applyPlanTransform();
+        const issueMarkers = (project?.reports || []).flatMap(report => (report.type === 'incidencia' || report.type === 'avances')
+          ? (report.entries || []).filter(entry => Number(entry.planId) === Number(plan.id) && entry.planX != null && entry.planY != null).map(entry => ({ id: `issue-${entry.id}`, entryId: entry.id, page: 1, x: entry.planX, y: entry.planY, label: `${entry.buildingLocation || 'Punto'} · ${entry.status || 'Sin estado'} · ${entry.responsibleCompany || 'Sin empresa'}` }))
+          : []);
+        renderPlanMarkers(issueMarkers.length ? issueMarkers : (plan.markers || []), project?.canEdit);
+        $('planZoomValue').textContent = `${Math.round(planZoom * 100)}%`;
+        const markerModeButton = $('planMarkerModeBtn');
+        if(markerModeButton){
+          markerModeButton.classList.toggle('d-none', !project?.canEdit);
+          markerModeButton.setAttribute('aria-pressed', String(planMarkerMode));
+        }
+        $('planCanvasWrap')?.classList.toggle('is-marker-mode', !!planMarkerMode && !!project?.canEdit);
+        lastPlanRenderSignature = renderSignature;
+      } catch(error) {
+        lastPlanRenderSignature = null;
+        $('planViewerHint').textContent = 'No se pudo visualizar el PDF. Ábrelo desde la lista.';
+      } finally {
+        if(planViewerInFlightSignature === renderSignature){
+          planViewerInFlightSignature = null;
+          planViewerInFlightPromise = null;
+        }
       }
-      const pdf = await pdfPromise;
-      if(renderToken !== planRenderToken) return;
-      const page = await pdf.getPage(1);
-      const baseViewport = page.getViewport({ scale: 1 });
-      $('planCanvasWrap')?.classList.toggle('is-landscape-plan', baseViewport.width > baseViewport.height);
-      const width = Math.max(320, Math.min(1100, $('planCanvasWrap').clientWidth || 700));
-      const baseScale = width / baseViewport.width;
-      const baseHeight = baseViewport.height * baseScale;
-      const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-      const svgContainer = $('planSvg');
-      if(svgContainer) svgContainer.replaceChildren();
-      const tileLayer = $('planTiles');
-      if(tileLayer) tileLayer.replaceChildren();
-      const rasterViewport = page.getViewport({ scale: baseScale * planRenderQuality * devicePixelRatio });
-      const context = canvas.getContext('2d');
-      canvas.width = rasterViewport.width;
-      canvas.height = rasterViewport.height;
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${baseHeight}px`;
-      canvas.style.display = 'block';
-      await page.render({ canvasContext: context, viewport: rasterViewport }).promise;
-      if(renderToken !== planRenderToken) return;
-      const layer = $('planMarkers');
-      const stage = $('planCanvasStage');
-      if(stage){
-        stage.style.width = `${width}px`;
-        stage.style.height = `${baseHeight}px`;
-      }
-      if(layer){
-        layer.style.width = `${width}px`;
-        layer.style.height = `${baseHeight}px`;
-        layer.style.left = '0px';
-        layer.style.top = '0px';
-      }
-      applyPlanTransform();
-      const issueMarkers = (project?.reports || []).flatMap(report => report.type === 'incidencia'
-        ? (report.entries || []).filter(entry => Number(entry.planId) === Number(plan.id) && entry.planX != null && entry.planY != null).map(entry => ({ id: `issue-${entry.id}`, entryId: entry.id, page: 1, x: entry.planX, y: entry.planY, label: `${entry.buildingLocation || 'Punto'} · ${entry.status || 'Sin estado'} · ${entry.responsibleCompany || 'Sin empresa'}` }))
-        : []);
-      renderPlanMarkers(issueMarkers.length ? issueMarkers : (plan.markers || []), project?.canEdit);
-      $('planZoomValue').textContent = `${Math.round(planZoom * 100)}%`;
-      const markerModeButton = $('planMarkerModeBtn');
-      if(markerModeButton){
-        markerModeButton.classList.toggle('d-none', !project?.canEdit);
-        markerModeButton.setAttribute('aria-pressed', String(planMarkerMode));
-      }
-      $('planCanvasWrap')?.classList.toggle('is-marker-mode', !!planMarkerMode && !!project?.canEdit);
-    } catch(error) {
-      $('planViewerHint').textContent = 'No se pudo visualizar el PDF. Ábrelo desde la lista.';
-    }
+    })();
+    return planViewerInFlightPromise;
   }
   function renderPlanMarkers(markers, canEdit){
     const layer = $('planMarkers');
@@ -210,29 +255,36 @@
   }
   async function renderIssuePlanPicker(plan){
     const canvas = $('issuePlanPickerCanvas');
+    const hint = $('issuePlanPickerHint');
     if(!canvas || !plan || !window.pdfjsLib) return;
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    let pdfPromise = planPdfCache.get(plan.url);
-    if(!pdfPromise){ pdfPromise = window.pdfjsLib.getDocument(plan.url).promise; planPdfCache.set(plan.url, pdfPromise); }
-    const pdf = await pdfPromise;
-    const page = await pdf.getPage(1);
-    const base = page.getViewport({ scale: 1 });
-    const width = Math.min(900, Math.max(320, $('issuePlanPickerCanvas').parentElement.clientWidth - 4));
-    const scale = width / base.width;
-    const viewport = page.getViewport({ scale });
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.ceil(viewport.width * ratio);
-    canvas.height = Math.ceil(viewport.height * ratio);
-    canvas.style.width = `${viewport.width}px`;
-    canvas.style.height = `${viewport.height}px`;
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport, transform: [ratio, 0, 0, ratio, 0, 0] }).promise;
-    if(issuePlanPoint?.planId === plan.id){
-      const marker = $('issuePlanPickerMarker');
-      const pointNumber = (state.entries || []).filter(entry => Number(entry.planId) === Number(plan.id) && entry.id !== state.editingEntryId && entry.planX != null && entry.planY != null).length + 1;
-      marker.textContent = pointNumber;
-      marker.style.left = `${issuePlanPoint.x * viewport.width}px`;
-      marker.style.top = `${issuePlanPoint.y * viewport.height}px`;
-      marker.classList.remove('d-none');
+    if(hint) hint.textContent = 'Cargando plano...';
+    try {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      let pdfPromise = planPdfCache.get(plan.url);
+      if(!pdfPromise){ pdfPromise = window.pdfjsLib.getDocument(plan.url).promise; planPdfCache.set(plan.url, pdfPromise); }
+      const pdf = await pdfPromise;
+      const page = await pdf.getPage(1);
+      const base = page.getViewport({ scale: 1 });
+      const width = Math.min(900, Math.max(320, $('issuePlanPickerCanvas').parentElement.clientWidth - 4));
+      const scale = width / base.width;
+      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      const viewport = getClampedViewport(page, scale * ratio);
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${width * (viewport.height / viewport.width)}px`;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      if(hint) hint.textContent = 'Haz clic sobre el plano para colocar el punto.';
+      if(issuePlanPoint?.planId === plan.id){
+        const marker = $('issuePlanPickerMarker');
+        const pointNumber = (state.entries || []).filter(entry => Number(entry.planId) === Number(plan.id) && entry.id !== state.editingEntryId && entry.planX != null && entry.planY != null).length + 1;
+        marker.textContent = pointNumber;
+        marker.style.left = `${issuePlanPoint.x * width}px`;
+        marker.style.top = `${issuePlanPoint.y * (width * (viewport.height / viewport.width))}px`;
+        marker.classList.remove('d-none');
+      }
+    } catch(error) {
+      if(hint) hint.textContent = 'No se pudo cargar el plano en este dispositivo. Intenta desde otro dispositivo o con menos zoom.';
     }
   }
   function getCsrfToken(){
@@ -358,6 +410,10 @@
     const data = await requestJson(`/api/projects/${project.slug}/reports/${reportId}/fronts/`, { method: 'POST', body: JSON.stringify({ name }) });
     return data.front;
   }
+  async function updateFrontRemote(project, reportId, frontId, name){
+    const data = await requestJson(`/api/projects/${project.slug}/reports/${reportId}/fronts/${frontId}/`, { method: 'POST', body: JSON.stringify({ name }) });
+    return data.front;
+  }
   async function deleteFrontRemote(project, reportId, frontId){
     await requestJson(`/api/projects/${project.slug}/reports/${reportId}/fronts/${frontId}/`, { method: 'DELETE' });
   }
@@ -377,10 +433,14 @@
       const data = await requestJson('/api/projects/', { method: 'GET' });
       const remoteProjects = Array.isArray(data.projects) ? data.projects : [];
       state.projects = remoteProjects.map(project => ({ ...project, currentReportId: project.currentReportId || project.reports?.[0]?.id || null }));
-      save();
+      const activeProject = getCurrentProject();
+      if(activeProject){
+        loadProject(activeProject);
+      }
       renderAll();
       updateSelectionScreenSections();
       syncViewWithCurrentRoute();
+      save();
     } catch (error) {
       console.warn('No se pudieron cargar los proyectos del servidor', error);
     }
@@ -406,6 +466,14 @@
   }
   async function deleteProjectPlanRemote(project, planId){
     await requestJson(`/api/projects/${project.slug}/plans/${planId}/`, { method: 'DELETE' });
+  }
+  async function createProjectResponsibleRemote(project, name){
+    const data = await requestJson(`/api/projects/${project.slug}/responsibles/`, { method: 'POST', body: JSON.stringify({ name }) });
+    return data.responsibleCompanies;
+  }
+  async function deleteProjectResponsibleRemote(project, responsibleId){
+    const data = await requestJson(`/api/projects/${project.slug}/responsibles/${responsibleId}/`, { method: 'DELETE' });
+    return data.responsibleCompanies;
   }
   async function deleteProjectPlanMarkerRemote(project, planId, markerId){
     await requestJson(`/api/projects/${project.slug}/plans/${planId}/markers/${markerId}/`, { method: 'DELETE' });
@@ -448,6 +516,7 @@
       workspaceView: 'fronts',
       currentFrontId: null,
       selectedEntryId: null,
+      editingFrontId: null,
       laborDateFrom: '',
       laborDateTo: '',
       forWhom: '',
@@ -574,7 +643,7 @@
         ? 'preview'
         : (report.type === 'equipos'
           ? 'equipment'
-          : (report.type === 'incidencia' ? 'issues' : (report.currentFrontId ? 'issues' : 'fronts')));
+          : 'summary');
       state.reportMetaComplete = report.metaComplete !== undefined ? !!report.metaComplete : true;
       if(state.existingReportOpen){
         state.reportMetaComplete = true;
@@ -610,6 +679,7 @@
   function resetProjectForm(){
     state.editingProjectInfo = false;
     state.editingReportMeta = false;
+    state.editingFrontId = null;
     state.companyName = 'VDC CONSTRUCCIONES SAC';
     state.projectName = '';
     state.projectLocation = '';
@@ -982,8 +1052,6 @@
     const lockReportMeta = hasProject && (hasReport ? !canEditReport : !canEditProject);
 
     [
-      'dashboardNewReportBtn',
-      'dashboardReportType',
       'editProjectInfoBtn',
       'saveProjectInfoBtn',
       'dashboardSaveProjectBtn',
@@ -1066,6 +1134,12 @@
     const routeMatchesCurrentReport = routeInfo.onFrontPath || routeInfo.onReportPath
       ? routeInfo.reportId === state.currentReportId
       : false;
+    if(routeInfo.onNewReportPath){
+      return !!(currentProject && (state.reportType || routeInfo.onNewReportPath));
+    }
+    if(routeInfo.onReportPath || routeInfo.onFrontPath){
+      return !!(currentProject && (routeMatchesCurrentReport || !!state.reportType));
+    }
     return !!(currentProject && currentReport && routeMatchesCurrentReport);
   }
 
@@ -1318,6 +1392,7 @@
       currentProjectId: data.currentProjectId !== undefined ? Number(data.currentProjectId) : state.currentProjectId,
       currentReportId: data.currentReportId !== undefined ? Number(data.currentReportId) : state.currentReportId,
       currentFrontId: data.currentFrontId !== undefined ? Number(data.currentFrontId) : state.currentFrontId,
+      editingFrontId: data.editingFrontId !== undefined && data.editingFrontId !== null ? Number(data.editingFrontId) : null,
       selectionStage: data.selectionStage || state.selectionStage,
       showProjectForm: data.showProjectForm !== undefined ? !!data.showProjectForm : state.showProjectForm,
     };
@@ -1505,13 +1580,60 @@
     const finalName = cleanedName || `Frente ${state.fronts.length + 1}`;
     const front = await createFrontRemote(project, state.currentReportId, finalName);
     state.fronts.push(front);
+    state.currentFrontId = front.id;
     const report = getCurrentReport();
     if(report) report.fronts = [...state.fronts];
     save(); renderAll(); return true;
   }
+  async function saveFrontEdit(name){
+    if(!ensureCanEditReport('No tienes permisos para editar frentes en este reporte.')){
+      return false;
+    }
+    const frontId = Number(state.editingFrontId);
+    const front = state.fronts.find(item => Number(item.id) === frontId);
+    const project = getCurrentProject();
+    if(!front || !project || !state.currentReportId){
+      state.editingFrontId = null;
+      return false;
+    }
+    const cleanedName = cleanFrontName(name) || name.trim();
+    if(!cleanedName) return false;
+    const duplicate = state.fronts.find(item => Number(item.id) !== frontId && normalizeName(item.name) === normalizeName(cleanedName));
+    if(duplicate){
+      alert(`Ya existe el frente "${duplicate.name}".`);
+      return false;
+    }
+    const updatedFront = await updateFrontRemote(project, state.currentReportId, frontId, cleanedName);
+    front.name = updatedFront.name;
+    state.editingFrontId = null;
+    const report = getCurrentReport();
+    if(report) report.fronts = [...state.fronts];
+    save();
+    renderAll();
+    return true;
+  }
+
+  async function ensureDefaultIncidentFront(){
+    if(state.reportType !== 'incidencia') return;
+    if(state.fronts.length) {
+      state.currentFrontId = state.currentFrontId || state.fronts[0].id;
+      return;
+    }
+    const created = await addFront('Frente principal', { autoMerge: false });
+    if(created && state.fronts.length) {
+      state.currentFrontId = state.fronts[0].id;
+    }
+  }
 
   function getEntryById(id){ return state.entries.find(e => e.id === id); }
   function getFrontName(frontId){ const front = state.fronts.find(f => f.id === frontId); return front ? front.name : 'Frente eliminado'; }
+  function getIssueLocationLabel(entry, index = null){
+    if(entry?.buildingLocation) return entry.buildingLocation;
+    if(entry?.planId && entry?.planX != null && entry?.planY != null){
+      return index != null ? `Punto ${index + 1}` : 'Punto registrado en plano';
+    }
+    return 'Sin ubicación';
+  }
   async function removeFront(id){
     if(!ensureCanEditReport('No tienes permisos para eliminar frentes en este reporte.')){
       return;
@@ -1525,6 +1647,17 @@
     const report = getCurrentReport();
     if(report){ report.fronts = [...state.fronts]; report.entries = [...state.entries]; }
     save(); renderAll();
+  }
+  function editFront(id){
+    if(!ensureCanEditReport('No tienes permisos para editar frentes en este reporte.')){
+      return;
+    }
+    const front = state.fronts.find(item => Number(item.id) === Number(id));
+    if(!front) return;
+    state.editingFrontId = front.id;
+    renderAll();
+    if($('frontName')) $('frontName').value = front.name || '';
+    $('frontName')?.focus();
   }
   async function removeEntry(id){
     if(!ensureCanEditReport('No tienes permisos para modificar issues en este reporte.')){
@@ -1542,11 +1675,29 @@
   }
   function clearEntryPhotoInputs(){ if($('photoInput')) $('photoInput').value = ''; if($('photoCameraInput')) $('photoCameraInput').value = ''; }
   function getEntryPhotoFiles(){ return [...($('photoInput')?.files ? Array.from($('photoInput').files) : []), ...($('photoCameraInput')?.files ? Array.from($('photoCameraInput').files) : [])]; }
-  function resetEntryEditor(){ state.editingEntryId = null; state.showIssueForm = false; issuePlanPoint = null; $('addEntryBtn').textContent = 'Agregar issue'; $('cancelEntryEditBtn').classList.add('d-none'); clearEntryPhotoInputs(); $('entryDesc').value = ''; if($('incidentDate')) $('incidentDate').value = ''; if($('responsibleCompany')) $('responsibleCompany').value = ''; if($('issueLocation')) $('issueLocation').value = ''; if($('issuePlanId')) $('issuePlanId').value = ''; if($('issuePlanX')) $('issuePlanX').value = ''; if($('issuePlanY')) $('issuePlanY').value = ''; if($('issuePlanPointStatus')) $('issuePlanPointStatus').textContent = ''; const frontId = Number($('selectFront').value); if(frontId){ $('selectFront').value = frontId; } $('selectFront').disabled = false; }
+  function renderResponsibleCompanySelect(value){
+    const select = $('responsibleCompany');
+    if(!select) return;
+    const project = getCurrentProject();
+    const list = Array.isArray(project?.responsibleCompanies) ? project.responsibleCompanies : [];
+    const names = list.map(item => item.name);
+    const current = value ?? select.value ?? '';
+    if(current && !names.includes(current)) names.push(current);
+    select.innerHTML = `<option value="">Selecciona un responsable</option>${names.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('')}`;
+    select.value = current || '';
+  }
+  function resetEntryEditor(){ state.editingEntryId = null; state.showIssueForm = false; issuePlanPoint = null; pendingRemovedEntryImageIds = new Set(); $('addEntryBtn').textContent = 'Agregar issue'; $('cancelEntryEditBtn').classList.add('d-none'); clearEntryPhotoInputs(); $('entryDesc').value = ''; if($('incidentDate')) $('incidentDate').value = ''; renderResponsibleCompanySelect(''); if($('issueLocation')) $('issueLocation').value = ''; if($('issuePlanId')) $('issuePlanId').value = ''; if($('issuePlanX')) $('issuePlanX').value = ''; if($('issuePlanY')) $('issuePlanY').value = ''; if($('issuePlanPointStatus')) $('issuePlanPointStatus').textContent = ''; const frontId = Number($('selectFront').value); if(frontId){ $('selectFront').value = frontId; } $('selectFront').disabled = false; renderExistingEntryImages(); }
+  function renderExistingEntryImages(){ const container = $('existingEntryImages'); if(!container) return; const entry = getEntryById(state.editingEntryId); const imageItems = Array.isArray(entry?.imageItems) ? entry.imageItems : []; const visibleItems = imageItems.filter(item => !pendingRemovedEntryImageIds.has(Number(item.id))); if(!state.editingEntryId || !visibleItems.length){ container.innerHTML = ''; container.classList.add('d-none'); return; } container.classList.remove('d-none'); container.innerHTML = `<div class="small text-muted mb-2">Fotos actuales</div>${visibleItems.map(item => `<div class="d-flex align-items-center justify-content-between gap-2 border rounded px-2 py-2 mb-2"><div class="d-flex align-items-center gap-2 overflow-hidden"><img src="${item.url}" alt="${escapeHtml(item.name || 'Foto')}" style="width: 48px; height: 48px; object-fit: cover; border-radius: 8px;"><span class="small text-truncate">${escapeHtml(item.name || 'Foto')}</span></div><button type="button" class="btn btn-sm btn-outline-danger remove-existing-entry-image" data-id="${item.id}">Quitar</button></div>`).join('')}`; container.querySelectorAll('.remove-existing-entry-image').forEach(btn => btn.addEventListener('click', () => { pendingRemovedEntryImageIds.add(Number(btn.dataset.id)); renderExistingEntryImages(); })); }
     function loadIncidentFields(entry){
+      const entryIndex = state.entries.findIndex(item => Number(item.id) === Number(entry?.id));
+      issuePlanPoint = null;
       if($('incidentDate')) $('incidentDate').value = entry.incidentDate || '';
-      if($('responsibleCompany')) $('responsibleCompany').value = entry.responsibleCompany || '';
-      if($('issueLocation')) $('issueLocation').value = entry.buildingLocation || '';
+      renderResponsibleCompanySelect(entry.responsibleCompany || '');
+      if($('issueLocation')) $('issueLocation').value = getIssueLocationLabel(entry, entryIndex >= 0 ? entryIndex : null) === 'Sin ubicación' ? '' : getIssueLocationLabel(entry, entryIndex >= 0 ? entryIndex : null);
+      if($('issuePlanId')) $('issuePlanId').value = '';
+      if($('issuePlanX')) $('issuePlanX').value = '';
+      if($('issuePlanY')) $('issuePlanY').value = '';
+      if($('issuePlanPointStatus')) $('issuePlanPointStatus').textContent = '';
       if(entry.planId && entry.planX != null && entry.planY != null){
         issuePlanPoint = { planId: entry.planId, x: entry.planX, y: entry.planY };
         if($('issuePlanId')) $('issuePlanId').value = String(entry.planId);
@@ -1831,7 +1982,14 @@
     $('exportPdfBtn')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
     $('exportPdfMode')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
     renderReportEditorSections();
+    renderReportTypeUi();
     applyWorkspaceView();
+    renderFrontList();
+    renderFrontSelect();
+    renderFrontDetail();
+    renderDuplicateAlert();
+    renderExistingEntryImages();
+    if($('addFrontBtn')) $('addFrontBtn').innerHTML = state.editingFrontId ? '<i class="bi bi-check2 me-1"></i>Guardar frente' : '<i class="bi bi-plus-lg me-1"></i>Agregar frente';
     const companyNameInput = $('companyName');
     const projectNameInput = $('projectName');
     const projectLocationInput = $('projectLocation');
@@ -1859,6 +2017,7 @@
     const metadataProjectName = $('metadataProjectName');
     const metadataReportType = $('metadataReportType');
     const metadataReportTypeDisplay = $('metadataReportTypeDisplay');
+    const formExtras = $('reportFormExtras');
     if(metadataProjectName) metadataProjectName.value = state.projectName || '';
     if(metadataReportType) metadataReportType.value = state.reportType || '';
     if(metadataReportTypeDisplay) metadataReportTypeDisplay.value = getReportTypeLabel(state.reportType);
@@ -1866,57 +2025,21 @@
     const recommendationTextInput = $('recommendationText');
     if(conclusionTextInput) conclusionTextInput.value = state.conclusionText || '';
     if(recommendationTextInput) recommendationTextInput.value = state.recommendationText || '';
-    const existingProjectName = $('existingProjectName');
-    const existingReportTitle = $('existingReportTitle');
-    const existingReportTitleCompact = $('existingReportTitleCompact');
-    const existingReportTypeDisplay = $('existingReportTypeDisplay');
-    const existingReportTypeCompact = $('existingReportTypeCompact');
-    const existingReportWeek = $('existingReportWeek');
-    const existingReportDate = $('existingReportDate');
-    const existingLaborRange = $('existingLaborRange');
-    const existingForWhom = $('existingForWhom');
-    const existingFromWhom = $('existingFromWhom');
-    const existingObjectiveText = $('existingObjectiveText');
-    const existingAnalysisText = $('existingAnalysisText');
-    if(existingProjectName) existingProjectName.value = state.projectName || '';
-    if(existingReportTitle) existingReportTitle.value = state.reportTitle || '';
-    if(existingReportTitleCompact) existingReportTitleCompact.textContent = state.reportTitle || 'Sin título';
-    if(existingReportTypeDisplay) existingReportTypeDisplay.value = getReportTypeLabel(state.reportType);
-    if(existingReportTypeCompact) existingReportTypeCompact.textContent = getReportTypeLabel(state.reportType) || 'Sin tipo';
-    if(existingReportWeek) existingReportWeek.value = state.reportWeek || '';
-    if(existingReportDate) existingReportDate.value = state.reportDate || '';
-    if(existingLaborRange) existingLaborRange.value = [formatDateForDisplay(state.laborDateFrom || ''), formatDateForDisplay(state.laborDateTo || '')].filter(Boolean).join(' al ') || 'Sin rango';
-    if(existingForWhom) existingForWhom.value = state.forWhom || 'Sin dato';
-    if(existingFromWhom) existingFromWhom.value = state.fromWhom || 'Sin dato';
-    if(existingObjectiveText) existingObjectiveText.value = state.objectiveText || 'Sin objetivo registrado';
-    if(existingAnalysisText) existingAnalysisText.value = state.analysisText || 'Sin análisis registrado';
-    $('conclusionList').innerHTML = renderBulletList(state.conclusionItems, state.conclusionText);
-    $('recommendationList').innerHTML = renderBulletList(state.recommendationItems, state.recommendationText);
-    const autoMergeEl = $('autoMergeDup');
-    if(autoMergeEl) autoMergeEl.checked = !!state.autoMergeDup;
-    document.querySelectorAll('.togglePreviewBtn').forEach(btn => {
-      btn.textContent = state.showPreviewMode ? 'Cerrar vista previa' : 'Ver vista previa';
-      btn.classList.toggle('btn-primary', !state.showPreviewMode);
-      btn.classList.toggle('btn-outline-primary', state.showPreviewMode);
-    });
-    const combineByStatusInput = $('combineByStatus');
-    if(combineByStatusInput) combineByStatusInput.checked = !!state.combineByStatus;
-    renderFrontList(); renderDuplicateAlert(); renderFrontSelect(); renderEntryList(); renderEquipmentList(); renderFrontDetail(); renderReportTypeUi(); renderReport();
-    const showIssueForm = !!state.showIssueForm && issueFormManuallyOpened;
-    const showIssueDetail = !!state.selectedEntryId && !showIssueForm;
-    $('frontDetailSection')?.classList.toggle('d-none', showIssueForm || showIssueDetail || !state.currentFrontId);
-    $('issueDetailPanel')?.classList.toggle('d-none', !showIssueDetail);
-    $('entrySection')?.classList.toggle('issue-form-view', showIssueForm);
-    if(state.showIssueForm && !issueFormManuallyOpened && state.existingReportOpen){
-      state.showIssueForm = false;
+    if(formExtras){
+      formExtras.classList.toggle('d-none', !(state.reportMetaComplete || state.existingReportOpen));
     }
     applyPermissionLocks();
+    if(state.showPreviewMode && !$('previewSection')?.classList.contains('d-none')){
+      refreshPreviewContent().catch(error => console.warn('No se pudo refrescar la vista previa del reporte', error));
+    }
   }
 
   function renderReportTypeUi(){
     const equipmentMode = isEquipmentReport();
     const incidentMode = state.reportType === 'incidencia';
     $('incidentFields')?.classList.toggle('d-none', !incidentMode);
+    $('entryLocationFields')?.classList.toggle('d-none', equipmentMode);
+    if(incidentMode) renderResponsibleCompanySelect();
     document.querySelectorAll('.js-metadata-obra-only').forEach(el => {
       el.classList.toggle('d-none', equipmentMode);
     });
@@ -1937,7 +2060,7 @@
       combineByStatus.closest('.form-check')?.classList.toggle('d-none', equipmentMode);
     }
     $('reportConclusionsSection')?.classList.toggle('d-none', equipmentMode || incidentMode);
-    $('reportFrontsSection')?.classList.toggle('d-none', incidentMode);
+    $('reportFrontsSection')?.classList.toggle('d-none', equipmentMode);
   }
 
   function clearEquipmentPhotoInputs(){
@@ -2011,8 +2134,8 @@
         </div>
       `;
     }).join('');
-    container.querySelectorAll('.edit-equipment').forEach(btn => btn.addEventListener('click', e => {
-      const entry = getEntryById(Number(e.target.dataset.id));
+    container.querySelectorAll('.edit-equipment').forEach(btn => btn.addEventListener('click', () => {
+      const entry = getEntryById(Number(btn.dataset.id));
       if(!entry) return;
       state.editingEntryId = entry.id;
       $('equipmentName').value = entry.itemName || '';
@@ -2026,15 +2149,17 @@
       $('equipmentName')?.focus();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }));
-    container.querySelectorAll('.delete-equipment').forEach(btn => btn.addEventListener('click', e => {
-      const id = Number(e.target.dataset.id);
+    container.querySelectorAll('.delete-equipment').forEach(btn => btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.id);
       if(confirm('¿Eliminar este equipo del reporte?')) removeEntry(id);
     }));
   }
 
   function applyWorkspaceView(){
-    const shouldShowWorkspaceControls = isOnReportWorkspaceRoute() && hasActiveReportWorkspaceContext();
-    const view = state.workspaceView || 'fronts';
+    const shouldShowWorkspaceControls = isOnReportWorkspaceRoute() && (
+      hasActiveReportWorkspaceContext() || !!state.reportType || !!state.currentProjectId
+    );
+    const view = state.workspaceView || 'summary';
     const equipmentSection = $('equipmentSection');
     const reportFrontsSection = $('reportFrontsSection');
     const frontDetailSection = $('frontDetailSection');
@@ -2045,6 +2170,7 @@
     const equipmentMode = isEquipmentReport();
     const incidentMode = state.reportType === 'incidencia';
     const formOpen = !!state.showIssueForm && issueFormManuallyOpened;
+    const detailOpen = !formOpen && !!state.selectedEntryId;
 
     document.querySelectorAll('[data-workspace-view]').forEach(link => {
       link.classList.toggle('active', shouldShowWorkspaceControls && link.dataset.workspaceView === view);
@@ -2057,16 +2183,18 @@
     state.showPreviewMode = view === 'preview';
 
     if(existingReportSummarySection){
-      existingReportSummarySection.classList.toggle('d-none', equipmentMode || view === 'preview');
+      existingReportSummarySection.classList.toggle('d-none', equipmentMode || view !== 'summary');
     }
     if(equipmentSection){
       equipmentSection.classList.toggle('d-none', !equipmentMode || view !== 'equipment');
     }
     if(reportFrontsSection){
-      reportFrontsSection.classList.toggle('d-none', equipmentMode || incidentMode || view !== 'fronts');
+      reportFrontsSection.classList.toggle('d-none', equipmentMode || view !== 'fronts');
     }
     if(frontDetailSection){
-      const shouldShowFrontDetail = !equipmentMode && view === 'issues' && !formOpen && (state.currentFrontId || state.fronts.length || state.entries.length);
+      const shouldShowFrontDetail = !equipmentMode && view === 'issues' && !formOpen && !detailOpen && (
+        state.reportType === 'incidencia' || state.currentFrontId || state.fronts.length || state.entries.length
+      );
       frontDetailSection.classList.toggle('d-none', !shouldShowFrontDetail);
     }
     if(entrySection){
@@ -2074,8 +2202,9 @@
       entrySection.classList.toggle('d-none', !shouldShowEntrySection);
       entrySection.classList.toggle('issue-form-view', formOpen);
     }
+    $('issueDetailPanel')?.classList.toggle('d-none', !(!equipmentMode && view === 'issues' && detailOpen));
     if(reportConclusionsSection){
-      reportConclusionsSection.classList.toggle('d-none', equipmentMode || incidentMode || view !== 'issues');
+      reportConclusionsSection.classList.toggle('d-none', equipmentMode || incidentMode || view !== 'summary');
     }
     if(previewSection){
       previewSection.classList.toggle('d-none', view !== 'preview');
@@ -2110,15 +2239,17 @@
       return;
     }
     if(state.reportType === 'incidencia'){
-      list.innerHTML = `<div class="incident-table-wrap"><table class="incident-table"><thead><tr><th>N.º</th><th>Frente</th><th>Descripción</th><th>Ubicación</th><th>Estado</th><th>Fecha</th><th>Empresa responsable</th><th>Acciones</th></tr></thead><tbody>${entries.map((entry, index) => { const front = state.fronts.find(item => Number(item.id) === Number(entry.frontId)); return `<tr><td>${index + 1}</td><td>${escapeHtml(front?.name || 'Sin frente')}</td><td class="incident-table-description">${escapeHtml(entry.desc || 'Sin descripción')}</td><td>${escapeHtml(entry.buildingLocation || `Punto ${index + 1}`)}</td><td>${statusBadge(entry.status || 'Sin estado')}</td><td>${escapeHtml(entry.incidentDate || 'Sin fecha')}</td><td>${escapeHtml(entry.responsibleCompany || 'Sin empresa')}</td><td><div class="incident-table-actions"><button data-id="${entry.id}" class="btn btn-sm btn-outline-secondary view-entry-detail" title="Ver detalle" aria-label="Ver detalle"><i class="bi bi-eye"></i></button><button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-entry" title="Editar" aria-label="Editar"><i class="bi bi-pencil"></i></button><button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-entry" title="Eliminar" aria-label="Eliminar"><i class="bi bi-trash3"></i></button></div></td></tr>`; }).join('')}</tbody></table></div>`;
+      list.innerHTML = `<div class="incident-table-wrap"><table class="incident-table"><thead><tr><th>N.º</th><th>Frente</th><th>Descripción</th><th>Ubicación</th><th>Estado</th><th>Fecha</th><th>Empresa responsable</th><th>Acciones</th></tr></thead><tbody>${entries.map((entry, index) => { const front = state.fronts.find(item => Number(item.id) === Number(entry.frontId)); return `<tr><td>${index + 1}</td><td>${escapeHtml(front?.name || 'Sin frente')}</td><td class="incident-table-description">${escapeHtml(entry.desc || 'Sin descripción')}</td><td>${escapeHtml(getIssueLocationLabel(entry, index))}</td><td>${statusBadge(entry.status || 'Sin estado')}</td><td>${escapeHtml(entry.incidentDate || 'Sin fecha')}</td><td>${escapeHtml(entry.responsibleCompany || 'Sin empresa')}</td><td><div class="incident-table-actions"><button data-id="${entry.id}" class="btn btn-sm btn-outline-secondary view-entry-detail" title="Ver detalle" aria-label="Ver detalle"><i class="bi bi-eye"></i></button><button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-entry" title="Editar" aria-label="Editar"><i class="bi bi-pencil"></i></button><button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-entry" title="Eliminar" aria-label="Eliminar"><i class="bi bi-trash3"></i></button></div></td></tr>`; }).join('')}</tbody></table></div>`;
     } else {
-      list.innerHTML = entries.map(entry => {
-        return `<div class="issue-item card mb-2 p-3"><div class="d-flex justify-content-between align-items-start flex-wrap gap-2"><div><strong>${escapeHtml(entry.desc || 'Issue sin descripción')}</strong><div class="small text-muted">${escapeHtml(entry.status)} · ${escapeHtml(selectedFront.name)}</div></div><div class="d-flex gap-2"><button data-id="${entry.id}" class="btn btn-sm btn-outline-secondary view-entry-detail">Ver detalle</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-entry">Editar</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-entry">Eliminar</button></div></div></div>`;
+      list.innerHTML = entries.map((entry, index) => {
+        const locationLabel = (entry.buildingLocation || (entry.planId && entry.planX != null && entry.planY != null)) ? getIssueLocationLabel(entry, index) : '';
+        return `<div class="issue-item card mb-2 p-3"><div class="d-flex justify-content-between align-items-start flex-wrap gap-2"><div><strong>${escapeHtml(entry.desc || 'Issue sin descripción')}</strong><div class="small text-muted">${escapeHtml(entry.status)} · ${escapeHtml(selectedFront.name)}${locationLabel ? ` · ${escapeHtml(locationLabel)}` : ''}</div></div><div class="d-flex gap-2"><button data-id="${entry.id}" class="btn btn-sm btn-outline-secondary view-entry-detail">Ver detalle</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-entry">Editar</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-entry">Eliminar</button></div></div></div>`;
       }).join('');
     }
-    list.querySelectorAll('.edit-entry').forEach(btn => btn.addEventListener('click', e => {
-      const entry = getEntryById(Number(e.target.dataset.id));
+    list.querySelectorAll('.edit-entry').forEach(btn => btn.addEventListener('click', () => {
+      const entry = getEntryById(Number(btn.dataset.id));
       if(!entry) return;
+      state.selectedEntryId = null;
       state.editingEntryId = entry.id;
       state.showIssueForm = true;
       issueFormManuallyOpened = true;
@@ -2130,18 +2261,21 @@
       $('entryDesc').value = entry.desc || '';
       $('addEntryBtn').textContent = 'Guardar cambios';
       $('cancelEntryEditBtn').classList.remove('d-none');
-          clearEntryPhotoInputs();
+        pendingRemovedEntryImageIds = new Set();
+        clearEntryPhotoInputs();
       save();
       renderAll();
+        renderExistingEntryImages();
       $('entryDesc')?.focus();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }));
-    list.querySelectorAll('.delete-entry').forEach(btn => btn.addEventListener('click', e => {
-      const id = Number(e.target.dataset.id);
+    list.querySelectorAll('.delete-entry').forEach(btn => btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.id);
       if(confirm('¿Borrar esta entrada del reporte?')) removeEntry(id);
     }));
-    list.querySelectorAll('.view-entry-detail').forEach(btn => btn.addEventListener('click', e => {
-      const id = Number(e.target.dataset.id);
+    list.querySelectorAll('.view-entry-detail').forEach(btn => btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.id);
+      state.showIssueForm = false;
       state.selectedEntryId = id;
       renderAll();
     }));
@@ -2155,42 +2289,19 @@
         const imagesHtml = Array.isArray(selectedEntry.images) && selectedEntry.images.length
           ? selectedEntry.images.map(src => `<img src="${src}" class="img-fluid mb-2" style="width: 100%; height: auto; display: block; margin-bottom: 0.75rem; object-fit: contain;">`).join('')
           : '<div class="text-muted small">No hay fotos disponibles.</div>';
-        detailPanel.classList.remove('d-none');
-        const incidentDetail = state.reportType === 'incidencia' ? `<div class="small text-muted mb-3"><div><strong>Fecha:</strong> ${escapeHtml(selectedEntry.incidentDate || 'Sin fecha')}</div><div><strong>Empresa responsable:</strong> ${escapeHtml(selectedEntry.responsibleCompany || 'Sin empresa')}</div><div><strong>Ubicación:</strong> ${escapeHtml(selectedEntry.buildingLocation || 'Sin ubicación')}</div></div>` : '';
-        detailPanel.innerHTML = `<div class="mb-3"><strong>Detalle de issue</strong></div><div class="mb-2"><span class="badge bg-secondary">${escapeHtml(selectedEntry.status)}</span></div>${incidentDetail}<div class="mb-3">${escapeHtml(selectedEntry.desc || 'Sin descripción')}</div>${imagesHtml}<div class="d-flex gap-2 flex-wrap"><button type="button" class="btn btn-sm btn-primary edit-entry-detail" data-id="${selectedEntry.id}">Editar</button><button type="button" class="btn btn-sm btn-outline-secondary close-entry-detail">Cerrar detalle</button><button type="button" class="btn btn-sm btn-outline-danger delete-entry" data-id="${selectedEntry.id}">Eliminar</button></div>`;
-        detailPanel.querySelector('.edit-entry-detail').addEventListener('click', () => {
-          state.editingEntryId = selectedEntry.id;
-          state.showIssueForm = true;
-          issueFormManuallyOpened = true;
-          $('selectFront').value = selectedEntry.frontId;
-          $('selectFront').disabled = false;
-            $('selectFront').disabled = false;
-          $('statusSelect').value = selectedEntry.status;
-          loadIncidentFields(selectedEntry);
-            const incidentMeta = state.reportType === 'incidencia' ? `<div class="small text-muted">Fecha: ${escapeHtml(entry.incidentDate || 'Sin fecha')} · Empresa: ${escapeHtml(entry.responsibleCompany || 'Sin empresa')} · Ubicación: ${escapeHtml(entry.buildingLocation || 'Sin ubicación')}</div>` : '';
-            return `<div class="issue-item card mb-2 p-3"><div class="d-flex justify-content-between align-items-start flex-wrap gap-2"><div><strong>${escapeHtml(entry.desc || 'Issue sin descripción')}</strong><div class="small text-muted">${escapeHtml(entry.status)} · ${escapeHtml(selectedFront.name)}</div>${incidentMeta}</div><div class="d-flex gap-2"><button data-id="${entry.id}" class="btn btn-sm btn-outline-secondary view-entry-detail">Ver detalle</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-entry">Editar</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-entry">Eliminar</button></div></div></div>`;
-          $('entryDesc').value = selectedEntry.desc || '';
-          $('addEntryBtn').textContent = 'Guardar cambios';
-          $('cancelEntryEditBtn').classList.remove('d-none');
-          $('photoInput').value = '';
-          save();
-          renderAll();
-          $('entryDesc')?.focus();
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        });
+        const entryIndex = entries.findIndex(item => Number(item.id) === Number(selectedEntry.id));
+        const hasLocation = !!(selectedEntry.buildingLocation || (selectedEntry.planId && selectedEntry.planX != null && selectedEntry.planY != null));
+        const incidentDetail = state.reportType === 'incidencia' ? `<div class="small text-muted mb-3"><div><strong>Fecha:</strong> ${escapeHtml(selectedEntry.incidentDate || 'Sin fecha')}</div><div><strong>Empresa responsable:</strong> ${escapeHtml(selectedEntry.responsibleCompany || 'Sin empresa')}</div><div><strong>Ubicación:</strong> ${escapeHtml(getIssueLocationLabel(selectedEntry, entryIndex >= 0 ? entryIndex : null))}</div></div>` : (hasLocation ? `<div class="small text-muted mb-3"><div><strong>Ubicación:</strong> ${escapeHtml(getIssueLocationLabel(selectedEntry, entryIndex >= 0 ? entryIndex : null))}</div></div>` : '');
+        detailPanel.innerHTML = `<div class="section-card-header section-card-header-compact mb-3"><span class="section-icon"><i class="bi bi-eye"></i></span><div class="flex-grow-1"><h2 class="section-title mb-0">Detalle de issue</h2><p class="section-desc mb-0">Vista independiente del issue seleccionado.</p></div></div><div class="d-flex justify-content-between align-items-center gap-2 mb-3 issue-form-view-header"><span class="small text-muted">Detalle independiente de incidencia</span><button type="button" class="btn btn-outline-secondary btn-sm close-entry-detail"><i class="bi bi-arrow-left me-1"></i>Volver a incidencias</button></div><div class="mb-2"><span class="badge bg-secondary">${escapeHtml(selectedEntry.status)}</span></div>${incidentDetail}<div class="mb-3">${escapeHtml(selectedEntry.desc || 'Sin descripción')}</div>${imagesHtml}`;
         detailPanel.querySelector('.close-entry-detail').addEventListener('click', () => {
           state.selectedEntryId = null;
           renderAll();
         });
-        detailPanel.querySelectorAll('.delete-entry').forEach(btn => btn.addEventListener('click', e => {
-          const id = Number(e.target.dataset.id);
-          if(confirm('¿Borrar esta entrada del reporte?')) removeEntry(id);
-        }));
       }
     }
   }
 
-  function renderFrontList(){ const container = $('frontList'); container.innerHTML = ''; if(!state.fronts.length){ container.innerHTML = '<p class="text-muted small mb-0">Sin frentes. Agrega uno para poder registrar issues.</p>'; return; } state.fronts.forEach(f => { const n = frontNumber(f.id); const div = document.createElement('div'); div.className = 'front-item d-flex align-items-center justify-content-between flex-wrap gap-2'; div.innerHTML = `<div class="d-flex align-items-center gap-2"><span class="badge bg-dark front-num">${n}</span><span>${escapeHtml(f.name)}</span></div><div class="d-flex gap-2 flex-wrap"><button data-id="${f.id}" class="btn btn-sm btn-primary open-front-btn">Ver detalle</button><button data-id="${f.id}" class="btn btn-sm btn-danger rm-front">Eliminar</button></div>`; container.appendChild(div); }); container.querySelectorAll('.rm-front').forEach(b => b.addEventListener('click', e => { const id = Number(e.target.dataset.id); if(confirm('¿Eliminar frente y sus entradas?')) removeFront(id); })); container.querySelectorAll('.open-front-btn').forEach(b => b.addEventListener('click', e => { const id = Number(e.target.dataset.id); const project = getCurrentProject(); if(id && project && state.currentReportId){ state.workspaceView = 'issues'; state.currentFrontId = id; state.showIssueForm = false; state.editingEntryId = null; state.selectedEntryId = null; save(); setFrontRoute(project, state.currentReportId, id); renderAll(); } })); }
+  function renderFrontList(){ const container = $('frontList'); container.innerHTML = ''; if(!state.fronts.length){ container.innerHTML = '<p class="text-muted small mb-0">Sin frentes. Agrega uno para poder registrar issues.</p>'; return; } state.fronts.forEach(f => { const n = frontNumber(f.id); const div = document.createElement('div'); div.className = 'front-item d-flex align-items-center justify-content-between flex-wrap gap-2'; div.innerHTML = `<div class="d-flex align-items-center gap-2"><span class="badge bg-dark front-num">${n}</span><span>${escapeHtml(f.name)}</span></div><div class="d-flex gap-2 flex-wrap"><button data-id="${f.id}" class="btn btn-sm btn-outline-primary edit-front-btn">Editar</button><button data-id="${f.id}" class="btn btn-sm btn-danger rm-front">Eliminar</button></div>`; container.appendChild(div); }); container.querySelectorAll('.rm-front').forEach(b => b.addEventListener('click', () => { const id = Number(b.dataset.id); if(confirm('¿Eliminar frente y sus entradas?')) removeFront(id); })); container.querySelectorAll('.edit-front-btn').forEach(b => b.addEventListener('click', () => { const id = Number(b.dataset.id); if(id) editFront(id); })); }
   function renderEntryList(){ const container = $('entryList'); container.innerHTML = ''; const selectedFront = state.fronts.find(f => f.id === state.currentFrontId); const entries = selectedFront ? state.entries.filter(e => e.frontId === selectedFront.id) : state.entries; if(!entries.length){ container.innerHTML = '<p class="text-muted small mb-0">No hay issues en este frente. Crea una nueva issue cuando la necesites.</p>'; return; } entries.forEach(entry => { const front = state.fronts.find(f => f.id === entry.frontId); const name = front ? front.name : 'Frente eliminado'; const div = document.createElement('div'); div.className = 'entry-list-item'; div.innerHTML = `<div class="entry-list-meta"><div><strong>${escapeHtml(name)}</strong><br><span class="badge badge-status ${STATUS_BADGE[entry.status] || 'bg-info text-dark'}">${escapeHtml(entry.status)}</span></div><div class="entry-list-actions"><button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-entry">Editar</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-entry">Borrar</button></div></div><div class="entry-list-body">${escapeHtml(entry.desc || 'Sin descripción')}</div>`; container.appendChild(div); }); container.querySelectorAll('.edit-entry').forEach(btn => btn.addEventListener('click', e => { const entry = getEntryById(Number(e.target.dataset.id)); if(!entry) return; state.editingEntryId = entry.id; state.showIssueForm = true; $('selectFront').value = entry.frontId; $('selectFront').disabled = true; $('statusSelect').value = entry.status; $('entryDesc').value = entry.desc || ''; $('addEntryBtn').textContent = 'Guardar cambios'; $('cancelEntryEditBtn').classList.remove('d-none'); $('photoInput').value = ''; save(); renderAll(); $('entryDesc')?.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }); })); container.querySelectorAll('.delete-entry').forEach(btn => btn.addEventListener('click', e => { const id = Number(e.target.dataset.id); if(confirm('¿Borrar esta entrada del reporte?')) removeEntry(id); })); }
   function renderDuplicateAlert(){ const el = $('duplicateAlert'); if(!el) return; const groups = findDuplicateGroups(); if(!groups.length){ el.innerHTML = ''; return; } el.innerHTML = groups.map(group => { const names = group.map(f => `${frontNumber(f.id)}. ${escapeHtml(f.name)}`).join(', '); const keepId = group[0].id; const removeIds = group.slice(1).map(f => f.id); return `<div class="dup-group small"><strong>Duplicados:</strong> ${names}<button class="btn btn-sm btn-warning ms-2 merge-group" data-keep="${keepId}" data-remove="${removeIds.join(',')}">Fusionar</button></div>`; }).join(''); el.querySelectorAll('.merge-group').forEach(btn => btn.addEventListener('click', e => { const keepId = Number(e.target.dataset.keep); const removeIds = e.target.dataset.remove.split(',').map(Number); mergeFronts(keepId, removeIds); })); }
   function updatePreviewScale(){
@@ -2278,13 +2389,12 @@
     const introActions = $('dashboardIntroActions');
     const dashboardNewProjectBtn = $('dashboardNewProjectBtn');
     const projectList = $('dashboardProjectList');
-    const projectFormCard = $('dashboardProjectFormCard');
+    const projectFormCard = $('dashboardProjectForm');
     const dashboardCompanyName = $('dashboardCompanyName');
     const dashboardProjectName = $('dashboardProjectName');
     const dashboardProjectLocation = $('dashboardProjectLocation');
     const projectFormTitle = $('dashboardProjectFormTitle');
     const reportHub = $('dashboardReportHub');
-    const dashboardReportType = $('dashboardReportType');
     const currentProjectName = $('dashboardCurrentProjectName');
     const projectSummary = $('dashboardProjectSummary');
     const reportList = $('dashboardReportList');
@@ -2292,7 +2402,12 @@
     const projectShareToggle = $('projectShareToggle');
     const projectPlansTab = $('projectPlansTab');
     const projectSummaryTab = $('projectSummaryTab');
+    const projectResponsiblesTab = $('projectResponsiblesTab');
     const plansSection = $('dashboardPlansSection');
+    const responsiblesSection = $('dashboardResponsiblesSection');
+    const responsiblesList = $('dashboardResponsiblesList');
+    const responsiblesCount = $('projectResponsiblesCount');
+    const responsibleForm = $('dashboardResponsibleForm');
     const reportsLabel = $('dashboardReportsLabel');
     const addTypeReportButton = $('dashboardAddTypeReportBtn');
     const plansList = $('dashboardPlansList');
@@ -2359,17 +2474,31 @@
 
     if(currentProjectName) currentProjectName.textContent = current.projectName || 'Proyecto sin nombre';
     const showingPlans = projectDashboardView === 'plans';
+    const showingResponsibles = projectDashboardView === 'responsibles';
     const showingReports = projectDashboardView === 'reports';
     const reportTypeLabels = { incidencia: 'Reporte de incidencia', avances: 'Reporte de avances', equipos: 'Recepción y entrega de equipos' };
-    projectSummaryTab?.classList.toggle('is-active', !showingPlans);
+    projectSummaryTab?.classList.toggle('is-active', !showingPlans && !showingResponsibles && !showingReports);
     projectPlansTab?.classList.toggle('is-active', showingPlans);
+    projectResponsiblesTab?.classList.toggle('is-active', showingResponsibles);
     document.querySelectorAll('#dashboardPlanReportTypes [data-report-type]').forEach(button => button.classList.toggle('is-active', showingReports && button.dataset.reportType === projectDashboardReportType));
-    projectSummary?.classList.toggle('d-none', showingPlans || showingReports);
-    projectShareToggle?.classList.toggle('d-none', showingPlans || showingReports);
-    projectShareSection?.classList.toggle('d-none', showingPlans || showingReports || !showProjectShare);
-    reportsLabel?.classList.toggle('d-none', showingPlans && !showingReports);
-    reportList?.classList.toggle('d-none', showingPlans);
+    projectSummary?.classList.toggle('d-none', showingPlans || showingResponsibles || showingReports);
+    projectShareToggle?.classList.toggle('d-none', showingPlans || showingResponsibles || showingReports);
+    projectShareSection?.classList.toggle('d-none', showingPlans || showingResponsibles || showingReports || !showProjectShare);
+    reportsLabel?.classList.toggle('d-none', (showingPlans || showingResponsibles) && !showingReports);
+    reportList?.classList.toggle('d-none', showingPlans || showingResponsibles);
     plansSection?.classList.toggle('d-none', !showingPlans);
+    responsiblesSection?.classList.toggle('d-none', !showingResponsibles);
+    const responsibleCompanies = Array.isArray(current.responsibleCompanies) ? current.responsibleCompanies : [];
+    if(responsiblesCount) responsiblesCount.textContent = responsibleCompanies.length;
+    responsibleForm?.classList.toggle('d-none', !current.canEdit);
+    if(responsiblesList){
+      responsiblesList.innerHTML = responsibleCompanies.length ? responsibleCompanies.map(item => `
+        <div class="dashboard-plan-item">
+          <div class="dashboard-plan-icon"><i class="bi bi-person-badge" aria-hidden="true"></i></div>
+          <div class="dashboard-plan-copy"><span>${escapeHtml(item.name)}</span></div>
+          ${current.canEdit ? `<button type="button" class="btn btn-sm btn-outline-danger dashboard-responsible-delete" data-id="${item.id}" title="Eliminar responsable" aria-label="Eliminar responsable"><i class="bi bi-trash3" aria-hidden="true"></i></button>` : ''}
+        </div>`).join('') : '<div class="dashboard-plans-empty"><i class="bi bi-person-badge" aria-hidden="true"></i><span>Aún no hay responsables agregados.</span></div>';
+    }
     addTypeReportButton?.classList.toggle('d-none', !showingReports);
     if(addTypeReportButton) addTypeReportButton.innerHTML = `<i class="bi bi-plus-circle me-1"></i>Agregar ${reportTypeLabels[projectDashboardReportType] || 'reporte'}`;
     const plans = Array.isArray(current.plans) ? current.plans : [];
@@ -2388,9 +2517,6 @@
     }
     const selectedPlan = plans.find(plan => plan.id === selectedPlanId) || null;
     renderPlanViewer(selectedPlan, current);
-    if(dashboardReportType){
-      dashboardReportType.value = state.reportType || '';
-    }
     if(projectSummary){
       projectSummary.innerHTML = `
         <div class="project-summary-grid">
@@ -2539,25 +2665,22 @@
       });
     }
     }
-    const hasPlanLocation = (state.entries || []).some(entry => entry.planId != null && entry.planX != null && entry.planY != null);
-    if(hasPlanLocation){
-      pages.push({
-        type: 'plan-location-loading',
-        tag: 'PLANO DE UBICACIÓN',
-        body: '<div class="report-page-content incident-plan-loading"><div class="report-section-title">PLANO DE UBICACIÓN</div><div class="report-empty-state">Cargando plano y puntos...</div></div>'
-      });
-    }
-
     const totalPages = pages.length;
     pages.forEach((page, index) => {
       const number = index + 1;
       const pageNode = document.createElement('div');
       pageNode.className = page.type === 'cover' ? 'report-page report-cover' : 'report-page report-secondary-page';
-      if(page.type === 'plan-location-loading') pageNode.id = 'incidentPlanPdfPage';
       pageNode.innerHTML = `${renderCompanyHeader()}${page.body}${page.type === 'cover' ? renderCoverFooterBlock(number, totalPages) : renderPageFooter(number, totalPages)}`;
       rc.appendChild(pageNode);
     });
 
+    updatePreviewScale();
+  }
+
+  async function refreshPreviewContent(){
+    previewRenderToken += 1;
+    renderReport();
+    await appendIncidentPlanPage(previewRenderToken);
     updatePreviewScale();
   }
 
@@ -2668,32 +2791,43 @@
     return reportContainer ? reportContainer.innerHTML : '';
   }
 
-  async function appendIncidentPlanPage(){
-    document.querySelector('#incidentPlanPdfPage')?.remove();
+  async function appendIncidentPlanPage(renderToken = null){
+    document.querySelectorAll('.incident-plan-pdf-page').forEach(node => node.remove());
     const project = getCurrentProject();
     const entries = (state.entries || []).filter(entry => entry.planId != null && entry.planX != null && entry.planY != null);
-    const planId = entries[0]?.planId;
-    const plan = project?.plans?.find(item => Number(item.id) === Number(planId));
-    if(!plan || !entries.length || !window.pdfjsLib) return;
+    if(!project || !entries.length || !window.pdfjsLib) return;
+    const entriesByPlan = entries.reduce((groups, entry) => {
+      const key = Number(entry.planId);
+      if(!Number.isFinite(key)) return groups;
+      if(!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(entry);
+      return groups;
+    }, new Map());
+    if(!entriesByPlan.size) return;
     window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    let pdfPromise = planPdfCache.get(plan.url);
-    if(!pdfPromise){ pdfPromise = window.pdfjsLib.getDocument(plan.url).promise; planPdfCache.set(plan.url, pdfPromise); }
-    const sourcePdf = await pdfPromise;
-    const page = await sourcePdf.getPage(1);
-    const isLandscape = page.view[2] > page.view[3];
-    const viewport = page.getViewport({ scale: 0.9 });
-    const ratio = 1;
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.ceil(viewport.width * ratio);
-    canvas.height = Math.ceil(viewport.height * ratio);
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport, transform: [ratio, 0, 0, ratio, 0, 0] }).promise;
-    const planPage = document.createElement('div');
-    planPage.id = 'incidentPlanPdfPage';
-    planPage.className = `report-page report-secondary-page incident-plan-pdf-page ${isLandscape ? 'is-landscape-plan' : 'is-portrait-plan'}`;
-    const planEntries = entries.filter(entry => Number(entry.planId) === Number(planId));
-    const pointMarkup = planEntries.map((entry, index) => `<span class="incident-plan-pdf-marker" style="left:${entry.planX * 100}%;top:${entry.planY * 100}%">${index + 1}</span>`).join('');
-    planPage.innerHTML = `${renderCompanyHeader()}<div class="report-page-content"><div class="report-page-tag">PLANO DE UBICACIÓN</div><div class="incident-plan-pdf-canvas"><img src="${canvas.toDataURL('image/png')}" alt="Plano de ubicación">${pointMarkup}</div></div>`;
-    $('reportContainer')?.appendChild(planPage);
+    for(const [planId, planEntries] of entriesByPlan.entries()){
+      const plan = project.plans?.find(item => Number(item.id) === planId);
+      if(!plan) continue;
+      let pdfPromise = planPdfCache.get(plan.url);
+      if(!pdfPromise){ pdfPromise = window.pdfjsLib.getDocument(plan.url).promise; planPdfCache.set(plan.url, pdfPromise); }
+      const sourcePdf = await pdfPromise;
+      if(renderToken != null && renderToken !== previewRenderToken) return;
+      const page = await sourcePdf.getPage(1);
+      const isLandscape = page.view[2] > page.view[3];
+      const viewport = page.getViewport({ scale: 0.9 });
+      const ratio = 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(viewport.width * ratio);
+      canvas.height = Math.ceil(viewport.height * ratio);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport, transform: [ratio, 0, 0, ratio, 0, 0] }).promise;
+      if(renderToken != null && renderToken !== previewRenderToken) return;
+      const planPage = document.createElement('div');
+      planPage.className = `report-page report-secondary-page incident-plan-pdf-page ${isLandscape ? 'is-landscape-plan' : 'is-portrait-plan'}`;
+      planPage.dataset.planId = String(planId);
+      const pointMarkup = planEntries.map((entry, index) => `<span class="incident-plan-pdf-marker" style="left:${entry.planX * 100}%;top:${entry.planY * 100}%">${index + 1}</span>`).join('');
+      planPage.innerHTML = `${renderCompanyHeader()}<div class="report-page-content"><div class="report-page-tag">PLANO DE UBICACIÓN</div><div class="incident-plan-pdf-canvas"><img src="${canvas.toDataURL('image/png')}" alt="Plano de ubicación">${pointMarkup}</div></div>`;
+      $('reportContainer')?.appendChild(planPage);
+    }
   }
 
   async function exportRealPdf(){
@@ -3009,6 +3143,12 @@
           state.editingEntryId = null;
           resetEquipmentEditor();
         }
+        if(nextView === 'summary'){
+          state.currentFrontId = null;
+          state.showIssueForm = false;
+          state.selectedEntryId = null;
+          state.editingEntryId = null;
+        }
         if(nextView === 'fronts'){
           state.currentFrontId = null;
           state.showIssueForm = false;
@@ -3026,7 +3166,7 @@
         save();
         renderAll();
         if(nextView === 'preview'){
-          appendIncidentPlanPage().then(() => updatePreviewScale()).catch(error => console.warn('No se pudo mostrar el plano en la vista previa', error));
+          refreshPreviewContent().catch(error => console.warn('No se pudo mostrar la vista previa del reporte', error));
         }
         if(window.innerWidth <= 992){
           setSidebarState(false);
@@ -3163,7 +3303,8 @@
       renderAll();
       $('dashboardProjectName')?.focus();
     });
-    $('dashboardSaveProjectBtn')?.addEventListener('click', async () => {
+    $('dashboardProjectForm')?.addEventListener('submit', async event => {
+      event.preventDefault();
       const company = $('dashboardCompanyName')?.value.trim() || 'VDC CONSTRUCCIONES SAC';
       const projectName = $('dashboardProjectName')?.value.trim();
       const projectLocation = $('dashboardProjectLocation')?.value.trim() || '';
@@ -3308,16 +3449,14 @@
       setPanelRoute();
       renderAll();
     });
-    $('dashboardNewReportBtn')?.addEventListener('click', () => {
+    const startDashboardReportCreation = reportType => {
       const project = getCurrentProject();
       if(!project) return;
       if(!ensureCanEditProject('No tienes permisos para crear reportes en este proyecto.')){
         return;
       }
-      const reportType = $('dashboardReportType')?.value || '';
       if(!reportType){
-        alert('Selecciona el tipo de reporte antes de continuar.');
-        $('dashboardReportType')?.focus();
+        alert('Selecciona una pestaña de tipo de reporte antes de continuar.');
         return;
       }
       state.reportMetaComplete = false;
@@ -3335,7 +3474,7 @@
       setNewReportRoute(project);
       renderAll();
       showAppScreen();
-    });
+    };
     $('projectShareToggle')?.addEventListener('click', () => {
       showProjectShare = !showProjectShare;
       renderAll();
@@ -3348,6 +3487,38 @@
       projectDashboardView = 'plans';
       renderAll();
     });
+    $('projectResponsiblesTab')?.addEventListener('click', () => {
+      projectDashboardView = 'responsibles';
+      renderAll();
+    });
+    $('dashboardAddResponsibleBtn')?.addEventListener('click', async () => {
+      const project = getCurrentProject();
+      const input = $('dashboardResponsibleName');
+      const name = input?.value.trim() || '';
+      if(!project || !name) return;
+      try {
+        project.responsibleCompanies = await createProjectResponsibleRemote(project, name);
+        if(input) input.value = '';
+        save();
+        renderAll();
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+    $('dashboardResponsiblesList')?.addEventListener('click', async e => {
+      const deleteButton = e.target.closest('.dashboard-responsible-delete');
+      if(!deleteButton) return;
+      const project = getCurrentProject();
+      const responsibleId = Number(deleteButton.dataset.id);
+      if(!project || !responsibleId || !confirm('¿Eliminar este responsable?')) return;
+      try {
+        project.responsibleCompanies = await deleteProjectResponsibleRemote(project, responsibleId);
+        save();
+        renderAll();
+      } catch (error) {
+        alert(error.message);
+      }
+    });
     $('dashboardPlanReportTypes')?.addEventListener('click', e => {
       const button = e.target.closest('[data-report-type]');
       if(!button) return;
@@ -3356,10 +3527,7 @@
       renderAll();
     });
     $('dashboardAddTypeReportBtn')?.addEventListener('click', () => {
-      if(projectDashboardReportType){
-        $('dashboardReportType').value = projectDashboardReportType;
-        $('dashboardNewReportBtn')?.click();
-      }
+      startDashboardReportCreation(projectDashboardReportType || '');
     });
     $('planZoomIn')?.addEventListener('click', () => {
       const bounds = $('planCanvasWrap')?.getBoundingClientRect();
@@ -3552,7 +3720,7 @@
       state.currentReportId = reportId;
       state.existingReportOpen = true;
       state.reportMetaComplete = true;
-      state.workspaceView = 'fronts';
+      state.workspaceView = 'summary';
       loadProject(project);
       save();
       setReportRoute(project, reportId);
@@ -3766,9 +3934,12 @@
       state.reportType = reportType;
       state.reportMetaComplete = true;
       state.existingReportOpen = true;
-      state.workspaceView = reportType === 'equipos' ? 'equipment' : 'fronts';
+      state.workspaceView = reportType === 'equipos' ? 'equipment' : 'summary';
       state.editingReportMeta = false;
       loadProject(project);
+      if(reportType === 'incidencia') {
+        await ensureDefaultIncidentFront();
+      }
       save();
       setReportRoute(project, state.currentReportId);
       renderAll();
@@ -3954,14 +4125,22 @@
       }
       const name = $('frontName').value;
       try {
-        if(await addFront(name)) $('frontName').value = '';
+        const ok = state.editingFrontId ? await saveFrontEdit(name) : await addFront(name);
+        if(ok && $('frontName')) $('frontName').value = '';
       } catch (error) {
         alert(error.message);
       }
     });
-    $('openIssueFormBtn')?.addEventListener('click', () => {
+    $('openIssueFormBtn')?.addEventListener('click', async () => {
       if(!ensureCanEditReport('No tienes permisos para crear issues en este reporte.')){
         return;
+      }
+      if(!state.currentFrontId && state.reportType === 'incidencia'){
+        if(!state.fronts.length){
+          const created = await addFront('Frente principal', { autoMerge: false });
+          if(!created) return;
+        }
+        state.currentFrontId = state.fronts[0]?.id ?? null;
       }
       if(state.currentFrontId){
         issueFormManuallyOpened = true;
@@ -3974,18 +4153,6 @@
         $('entryDesc')?.focus();
       }
     });
-    $('addIncidentFrontBtn')?.addEventListener('click', async () => {
-      const input = $('incidentFrontName');
-      const name = input?.value.trim();
-      if(!name){ input?.focus(); return; }
-      try {
-        await addFront(name, { autoMerge: false });
-        if(input) input.value = '';
-        state.workspaceView = 'issues';
-        state.currentFrontId = null;
-        renderAll();
-      } catch(error) { alert(error.message); }
-    });
     document.querySelectorAll('.togglePreviewBtn').forEach(btn => btn.addEventListener('click', () => {
       state.workspaceView = state.workspaceView === 'preview'
         ? (isEquipmentReport() ? 'equipment' : 'fronts')
@@ -3994,15 +4161,22 @@
       save();
       renderAll();
       if(state.showPreviewMode){
-        appendIncidentPlanPage().then(() => updatePreviewScale()).catch(error => console.warn('No se pudo mostrar el plano en la vista previa', error));
+        refreshPreviewContent().catch(error => console.warn('No se pudo mostrar la vista previa del reporte', error));
       }
     }));
-    $('combineByStatus')?.addEventListener('change', e => { state.combineByStatus = e.target.checked; save(); renderReport(); });
-    $('backToFrontListBtn')?.addEventListener('click', () => { const project = getCurrentProject(); state.workspaceView = 'fronts'; state.currentFrontId = null; state.showIssueForm = false; state.selectedEntryId = null; state.editingEntryId = null; save(); if(project && state.currentReportId){ setReportRoute(project, state.currentReportId); } renderAll(); });
+    $('combineByStatus')?.addEventListener('change', e => {
+      state.combineByStatus = e.target.checked;
+      save();
+      if(state.showPreviewMode){
+        refreshPreviewContent().catch(error => console.warn('No se pudo actualizar la vista previa del reporte', error));
+        return;
+      }
+      renderReport();
+    });
     $('cancelEntryEditBtn')?.addEventListener('click', () => { resetEntryEditor(); save(); renderAll(); });
     $('backFromIssueFormBtn')?.addEventListener('click', () => { resetEntryEditor(); save(); renderAll(); });
     $('chooseIssuePlanPointBtn')?.addEventListener('click', async () => {
-      if(state.reportType !== 'incidencia') return;
+      if(isEquipmentReport()) return;
       const project = getCurrentProject();
       const plans = project?.plans || [];
       if(!plans.length){ alert('Primero sube un plano en la pestaña Planos del proyecto.'); return; }
@@ -4044,11 +4218,17 @@
       $('issuePlanPicker').classList.add('d-none');
     });
     $('clearIssuePlanPointBtn')?.addEventListener('click', () => {
+      const currentPointLabel = issuePlanPoint
+        ? `Punto ${(state.entries || []).filter(entry => Number(entry.planId) === Number(issuePlanPoint.planId) && entry.id !== state.editingEntryId && entry.planX != null && entry.planY != null).length + 1}`
+        : '';
       issuePlanPoint = null;
       $('issuePlanId').value = '';
       $('issuePlanX').value = '';
       $('issuePlanY').value = '';
       $('issuePlanPointStatus').textContent = '';
+      if($('issueLocation')?.value === currentPointLabel){
+        $('issueLocation').value = '';
+      }
       $('issuePlanPicker').classList.add('d-none');
     });
     $('closeIssuePlanPickerBtn')?.addEventListener('click', () => $('issuePlanPicker').classList.add('d-none'));
@@ -4081,6 +4261,7 @@
       formData.append('planId', planId);
       formData.append('planX', planX);
       formData.append('planY', planY);
+      formData.append('removeImageIds', JSON.stringify(Array.from(pendingRemovedEntryImageIds)));
       if(state.editingEntryId != null && files.length){
         formData.append('replaceImages', 'true');
       }

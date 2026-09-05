@@ -291,6 +291,15 @@ def _serialize_entry(entry):
         "planX": entry.plan_x,
         "planY": entry.plan_y,
         "desc": entry.description,
+        "imageItems": [
+            {
+                "id": image.id,
+                "url": image.image.url,
+                "name": image.image.name.rsplit("/", 1)[-1],
+            }
+            for image in entry.images.all()
+            if image.image
+        ],
         "images": [image.image.url for image in entry.images.all() if image.image],
         "ts": entry.updated_at.isoformat(),
     }
@@ -356,6 +365,7 @@ def _serialize_project(project, user):
         "reportTitle": project.report_title,
         "forWhom": project.for_whom,
         "fromWhom": project.from_whom,
+        "responsibleCompanies": project.responsible_companies or [],
         "ownerUsername": project.owner.username,
         "ownerDisplayName": owner_display,
         "sharedByUsername": None if is_owner else project.owner.username,
@@ -515,6 +525,42 @@ def project_collection_api(request):
     )
     project = _get_project_or_404(request.user, project.slug)
     return JsonResponse({"project": _serialize_project(project, request.user)}, status=201)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def project_responsibles_api(request, project_slug):
+    project = _get_project_or_404(request.user, project_slug)
+    if request.method == "POST":
+        if not _can_edit_project(project, request.user):
+            return JsonResponse({"error": "No tienes permisos para agregar responsables."}, status=403)
+        payload = _request_data(request)
+        if payload is None:
+            return HttpResponseBadRequest("Datos inválidos")
+        name = (payload.get("name") or "").strip()
+        if not name:
+            return JsonResponse({"error": "El nombre del responsable es obligatorio."}, status=400)
+        companies = list(project.responsible_companies or [])
+        if any(item.get("name", "").strip().lower() == name.lower() for item in companies):
+            return JsonResponse({"error": "Ese responsable ya está en la lista."}, status=400)
+        next_id = max([item.get("id", 0) for item in companies], default=0) + 1
+        companies.append({"id": next_id, "name": name})
+        project.responsible_companies = companies
+        project.save(update_fields=["responsible_companies"])
+        return JsonResponse({"responsibleCompanies": companies}, status=201)
+    return JsonResponse({"responsibleCompanies": project.responsible_companies or []})
+
+
+@login_required
+@require_http_methods(["DELETE"])
+def project_responsible_detail_api(request, project_slug, responsible_id):
+    project = _get_project_or_404(request.user, project_slug)
+    if not _can_edit_project(project, request.user):
+        return JsonResponse({"error": "No tienes permisos para eliminar responsables."}, status=403)
+    companies = [item for item in (project.responsible_companies or []) if item.get("id") != responsible_id]
+    project.responsible_companies = companies
+    project.save(update_fields=["responsible_companies"])
+    return JsonResponse({"responsibleCompanies": companies})
 
 
 @login_required
@@ -801,13 +847,27 @@ def report_fronts_api(request, project_slug, report_id):
 
 
 @login_required
-@require_http_methods(["DELETE"])
+@require_http_methods(["POST", "DELETE"])
 def report_front_detail_api(request, project_slug, report_id, front_id):
     project = _get_project_or_404(request.user, project_slug)
     report = _get_user_report_or_404(project, request.user, report_id)
+    front = get_object_or_404(report.fronts.all(), pk=front_id)
+
+    if request.method == "POST":
+        if not _can_edit_report(report, request.user):
+            return JsonResponse({"error": "No tienes permisos para editar frentes en este reporte."}, status=403)
+        payload = _parse_json(request)
+        if payload is None:
+            return HttpResponseBadRequest("JSON inválido")
+        name = (payload.get("name") or "").strip()
+        if not name:
+            return JsonResponse({"error": "El nombre del frente es obligatorio."}, status=400)
+        front.name = name
+        front.save(update_fields=["name"])
+        return JsonResponse({"front": {"id": front.id, "name": front.name}})
+
     if not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para eliminar frentes en este reporte."}, status=403)
-    front = get_object_or_404(report.fronts.all(), pk=front_id)
     front.delete()
     return JsonResponse({"ok": True})
 
@@ -920,7 +980,12 @@ def report_entry_detail_api(request, project_slug, report_id, entry_id):
     status = (payload.get("status") or entry.status).strip()
     description = (payload.get("desc") or entry.description or "").strip()
     item_name = (payload.get("itemName") or payload.get("item_name") or entry.item_name or "").strip()
-    building_location = (payload.get("buildingLocation") or payload.get("building_location") or entry.building_location or "").strip()
+    if "buildingLocation" in payload:
+        building_location = (payload.get("buildingLocation") or "").strip()
+    elif "building_location" in payload:
+        building_location = (payload.get("building_location") or "").strip()
+    else:
+        building_location = (entry.building_location or "").strip()
     incident_date = entry.incident_date
     incident_date_value = (payload.get("incidentDate") or payload.get("incident_date") or "").strip()
     if incident_date_value:
@@ -983,15 +1048,23 @@ def report_entry_detail_api(request, project_slug, report_id, entry_id):
         return JsonResponse({"error": "La fecha del issue es obligatoria para una incidencia."}, status=400)
     entry.incident_date = incident_date
     entry.responsible_company = responsible_company
+    entry.building_location = building_location
     entry.plan_id = plan_id
     entry.plan_x = plan_x
     entry.plan_y = plan_y
     entry.save()
 
     replace_images = str(payload.get("replaceImages", "false")).lower() in {"1", "true", "yes"}
+    remove_image_ids_raw = payload.get("removeImageIds") or "[]"
+    try:
+        remove_image_ids = [int(image_id) for image_id in json.loads(remove_image_ids_raw)]
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return JsonResponse({"error": "La lista de fotos a eliminar no es válida."}, status=400)
     new_images = request.FILES.getlist("images")
     if replace_images and entry.images.exists():
         entry.images.all().delete()
+    elif remove_image_ids:
+        entry.images.filter(pk__in=remove_image_ids).delete()
     if new_images:
         if replace_images:
             entry.images.all().delete()

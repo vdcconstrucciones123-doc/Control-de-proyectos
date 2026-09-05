@@ -935,6 +935,71 @@ body:not(.sidebar-collapse) .app-main {
   border-radius: var(--radius-md);
 }
 
+.project-edit-card-compact {
+  max-width: 100%;
+  padding: 0.85rem 1rem;
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.project-form-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.65rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid #dbe4ef;
+}
+
+.project-edit-card-compact .dashboard-project-form-title {
+  margin-bottom: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.project-form-kicker {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.project-edit-card-compact .form-label {
+  margin-bottom: 0.3rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.project-edit-card-compact .form-control {
+  min-height: 34px;
+  border-color: #cbd5e1;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.project-edit-card-compact .form-control:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 0.16rem rgba(31, 111, 235, 0.14);
+}
+
+.project-form-actions {
+  margin-top: 0.75rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid #dbe4ef;
+}
+
+.project-edit-card-compact .btn {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
 .project-sharing-card {
   padding: 0.85rem 1rem;
 }

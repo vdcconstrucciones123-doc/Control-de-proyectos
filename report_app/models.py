@@ -15,6 +15,7 @@ class ReportProject(models.Model):
     report_title = models.CharField(max_length=200, default="REPORTE FOTOGRÁFICO DE OBRA")
     for_whom = models.CharField(max_length=200, blank=True)
     from_whom = models.CharField(max_length=200, blank=True)
+    responsible_companies = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
