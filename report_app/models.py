@@ -4,6 +4,13 @@ from django.db.models.signals import post_delete, pre_save
 from django.dispatch import receiver
 from django.utils.text import slugify
 
+if "cloudinary_storage" in settings.INSTALLED_APPS:
+    from cloudinary_storage.storage import RawMediaCloudinaryStorage
+
+    project_plan_storage = RawMediaCloudinaryStorage()
+else:
+    project_plan_storage = None
+
 
 class ReportProject(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="owned_projects")
@@ -40,7 +47,7 @@ class ReportProject(models.Model):
 class ProjectPlan(models.Model):
     project = models.ForeignKey(ReportProject, on_delete=models.CASCADE, related_name="plans")
     name = models.CharField(max_length=200, blank=True)
-    file = models.FileField(upload_to="project_plans/")
+    file = models.FileField(upload_to="project_plans/", storage=project_plan_storage)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

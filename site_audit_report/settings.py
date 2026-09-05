@@ -35,6 +35,7 @@ cloudinary_api_secret = os.getenv("CLOUDINARY_API_SECRET", "").strip()
 use_cloudinary = bool(
     cloudinary_url or (cloudinary_cloud_name and cloudinary_api_key and cloudinary_api_secret)
 )
+USE_CLOUDINARY = use_cloudinary
 
 if use_cloudinary:
     INSTALLED_APPS += [
