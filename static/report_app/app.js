@@ -1956,11 +1956,12 @@
       state.showIssueForm = false;
     }
     const profileSection = $('profileSection');
-    const showProfile = !!state.showProfileView;
+    const routeInfo = getRouteInfo();
+    const showProfile = !!state.showProfileView && !routeInfo.onPanelPath;
     $('reportWorkspaceSection')?.classList.toggle('preview-only', !!state.showPreviewMode);
     profileSection?.classList.toggle('d-none', !showProfile);
-    $('dashboardHubSection')?.classList.toggle('d-none', showProfile || isOnReportWorkspaceRoute());
-    $('reportWorkspaceSection')?.classList.toggle('d-none', showProfile || !isOnReportWorkspaceRoute());
+    $('dashboardHubSection')?.classList.toggle('d-none', showProfile || (isOnReportWorkspaceRoute() && !routeInfo.onPanelPath));
+    $('reportWorkspaceSection')?.classList.toggle('d-none', showProfile || (!isOnReportWorkspaceRoute() && !routeInfo.onPanelPath));
     renderSidebarContext();
     renderProjectSelect();
     renderProjectPanel();
@@ -2438,8 +2439,9 @@
     const uploadPlanButton = $('dashboardUploadPlanBtn');
     const projectSearch = $('dashboardProjectSearch');
     const current = getCurrentProject();
-    const showProjectDashboard = !!current && !isOnReportWorkspaceRoute() && !state.currentReportId;
-    const showProjectChooser = !state.showProjectForm && (!current || isOnReportWorkspaceRoute());
+    const routeInfo = getRouteInfo();
+    const showProjectDashboard = !!current && !routeInfo.onPanelPath && !isOnReportWorkspaceRoute() && !state.currentReportId;
+    const showProjectChooser = routeInfo.onPanelPath || (!state.showProjectForm && (!current || isOnReportWorkspaceRoute()));
     document.body.classList.toggle('portfolio-home', showProjectChooser);
     $('dashboardHubSection')?.classList.toggle('dashboard-project-mode', showProjectDashboard);
 
