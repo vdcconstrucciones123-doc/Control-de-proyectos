@@ -2836,6 +2836,16 @@ body:not(.sidebar-collapse) .app-main {
 .portfolio-home .app-main { margin-left: 220px !important; }
 
 @media (min-width: 769px) {
+  .portfolio-home .app-sidebar { width: 260px; padding: 1.25rem; }
+  .portfolio-home .app-main { margin-left: 260px !important; }
+  .portfolio-home .app-sidebar-brand { gap: 0.8rem; }
+  .portfolio-home .app-sidebar-title { font-size: 1rem; }
+  .portfolio-home .app-sidebar-subtitle { font-size: 0.7rem; }
+  .portfolio-home .app-user-panel { padding: 0.65rem; border-radius: 14px; }
+  .portfolio-home .app-user-name { font-size: 0.9rem; }
+  .portfolio-home .app-user-meta { font-size: 0.72rem; }
+  .portfolio-home .app-nav-link { padding: 0.8rem 0.9rem; }
+  .portfolio-home .portfolio-nav-label { font-size: 0.86rem !important; }
   .portfolio-home #dashboardHubSection { max-width: 1280px; padding: 0.9rem 1.2rem !important; }
   .portfolio-home #dashboardIntroHeader { margin-bottom: 0.9rem; padding-bottom: 0.8rem; }
   .portfolio-home .dashboard-portfolio-title { font-size: 1.75rem; }
