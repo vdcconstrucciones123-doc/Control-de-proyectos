@@ -8,10 +8,14 @@
   <section class="auth-screen">
     <div class="auth-shell">
       <div class="auth-brand-panel">
-        <div class="brand-mark" aria-hidden="true">SA</div>
+        {% if site_branding and site_branding.logo_image %}
+          <img class="brand-logo brand-logo-lg" src="{{ site_branding.logo_image.url }}" alt="{{ site_branding.site_name|default:'Logo' }}">
+        {% else %}
+          <div class="brand-mark" aria-hidden="true">SA</div>
+        {% endif %}
         <div class="auth-kicker">Acceso seguro</div>
-        <h1 class="auth-title">Ingresa a tu espacio de reportes</h1>
-        <p class="auth-copy">Cada usuario trabaja con sus propios proyectos y reportes sin alterar el flujo actual de campo.</p>
+        <h1 class="auth-title">{{ site_branding.site_name|default:'Ingresa a tu espacio de reportes' }}</h1>
+        <p class="auth-copy">{{ site_branding.site_subtitle|default:'Cada usuario trabaja con sus propios proyectos y reportes sin alterar el flujo actual de campo.' }}</p>
         <div class="auth-feature-list">
           <div class="auth-feature-item"><i class="bi bi-person-badge"></i><span>Acceso por usuario</span></div>
           <div class="auth-feature-item"><i class="bi bi-folder2-open"></i><span>Proyectos separados por cuenta</span></div>

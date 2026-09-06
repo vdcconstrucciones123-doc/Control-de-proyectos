@@ -27,10 +27,14 @@
 
     <aside class="main-sidebar sidebar-dark-primary elevation-4 app-sidebar">
       <a href="{% url 'panel_principal' %}" class="brand-link app-sidebar-brand text-decoration-none">
-        <div class="brand-mark brand-mark-sm" aria-hidden="true">SA</div>
+        {% if site_branding and site_branding.logo_image %}
+          <img class="brand-logo brand-logo-sm" src="{{ site_branding.logo_image.url }}" alt="{{ site_branding.site_name|default:'Logo' }}">
+        {% else %}
+          <div class="brand-mark brand-mark-sm" aria-hidden="true">SA</div>
+        {% endif %}
         <div>
-          <div class="app-sidebar-title">Site Audit Pro</div>
-          <div class="app-sidebar-subtitle">Control visual de obra</div>
+          <div class="app-sidebar-title">{{ site_branding.site_name|default:'Site Audit Pro' }}</div>
+          <div class="app-sidebar-subtitle">{{ site_branding.site_subtitle|default:'Control visual de obra' }}</div>
         </div>
       </a>
 
@@ -164,12 +168,12 @@
         <span><i class="bi bi-calendar3"></i> En planificación: <strong id="dashboardPlanningProjects">0</strong></span>
         <span><i class="bi bi-check-circle"></i> Completos: <strong id="dashboardCompleteProjects">0</strong></span>
       </div>
-      <div id="dashboardIntroActions" class="d-flex justify-content-end mb-3">
-        <button id="dashboardNewProjectBtn" type="button" class="btn btn-primary btn-sm"><i class="bi bi-plus-circle me-1"></i>Nuevo proyecto</button>
-      </div>
-      <div class="dashboard-project-search">
+      <div id="dashboardIntroActions" class="dashboard-project-toolbar mb-3">
+        <div class="dashboard-project-search">
         <i class="bi bi-search" aria-hidden="true"></i>
         <input id="dashboardProjectSearch" type="search" placeholder="Buscar proyecto..." aria-label="Buscar proyecto">
+        </div>
+        <button id="dashboardNewProjectBtn" type="button" class="btn btn-primary btn-sm"><i class="bi bi-plus-circle me-1"></i>Nuevo proyecto</button>
       </div>
       <form id="dashboardProjectForm" class="project-edit-card project-edit-card-compact d-none mb-3">
         <input id="dashboardProjectPhotoInput" type="file" accept="image/*" class="d-none">
@@ -338,6 +342,17 @@
           <button id="deleteCurrentReportBtn" type="button" class="btn btn-outline-danger btn-sm d-none"><i class="bi bi-trash me-1"></i>Eliminar reporte</button>
         </div>
       </div>
+      <div id="incidentKpiSection" class="incident-kpi-section d-none mb-3" aria-label="Indicadores de incidencias">
+        <div class="incident-kpi-card incident-kpi-open"><span>Abiertas</span><strong id="incidentKpiOpen">0</strong></div>
+        <div class="incident-kpi-card incident-kpi-closed"><span>Cerradas</span><strong id="incidentKpiClosed">0</strong></div>
+        <div class="incident-kpi-card incident-kpi-draft"><span>Borradores</span><strong id="incidentKpiDraft">0</strong></div>
+        <div class="incident-kpi-chart">
+          <div class="incident-kpi-chart-title">Distribución por estado</div>
+          <div class="incident-kpi-bar-row"><span>Abiertas</span><div class="incident-kpi-bar"><i id="incidentKpiOpenBar"></i></div><strong id="incidentKpiOpenPercent">0%</strong></div>
+          <div class="incident-kpi-bar-row"><span>Cerradas</span><div class="incident-kpi-bar"><i id="incidentKpiClosedBar"></i></div><strong id="incidentKpiClosedPercent">0%</strong></div>
+          <div class="incident-kpi-bar-row"><span>Borradores</span><div class="incident-kpi-bar"><i id="incidentKpiDraftBar"></i></div><strong id="incidentKpiDraftPercent">0%</strong></div>
+        </div>
+      </div>
       <div id="projectHeaderSection">
         <div class="mb-3">
           <label class="form-label mb-1">Proyecto</label>
@@ -349,7 +364,7 @@
             <div id="projectSummaryCard" class="project-summary-card">
               <div class="project-summary-row">
                 <div>
-                  <div class="project-summary-label">Empresa</div>
+                      <div class="project-summary-label">Empresa</div>
                   <div id="currentCompanyName" class="project-summary-value"></div>
                 </div>
                 {% if not new_report and not report_id %}
@@ -462,11 +477,11 @@
             <label class="form-label">Responsable</label>
             <input id="existingFromWhom" class="form-control" readonly>
           </div>
-          <div class="col-12">
+          <div class="col-12 js-obra-summary-only">
             <label class="form-label">Objetivo</label>
             <textarea id="existingObjectiveText" class="form-control" rows="3" readonly></textarea>
           </div>
-          <div class="col-12">
+          <div class="col-12 js-obra-summary-only">
             <label class="form-label">Análisis</label>
             <textarea id="existingAnalysisText" class="form-control" rows="4" readonly></textarea>
           </div>

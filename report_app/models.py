@@ -188,6 +188,21 @@ class EntryImage(models.Model):
         ordering = ["sort_order", "id"]
 
 
+class SiteBranding(models.Model):
+    logo_image = models.FileField(upload_to="site_logos/", blank=True, null=True)
+    site_name = models.CharField(max_length=120, default="Site Audit Pro")
+    site_subtitle = models.CharField(max_length=200, default="Control visual de obra")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Branding del sitio"
+        verbose_name_plural = "Branding del sitio"
+
+    def __str__(self):
+        return self.site_name or "Branding del sitio"
+
+
 class UserProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
     profile_image = models.FileField(upload_to="profile_images/", blank=True, null=True)
@@ -258,6 +273,20 @@ def delete_project_plan_on_delete(sender, instance, **kwargs):
 @receiver(post_delete, sender=UserProfile)
 def delete_profile_image_on_delete(sender, instance, **kwargs):
     _delete_file(instance.profile_image)
+
+
+@receiver(post_delete, sender=SiteBranding)
+def delete_site_branding_logo_on_delete(sender, instance, **kwargs):
+    _delete_file(instance.logo_image)
+
+
+@receiver(pre_save, sender=SiteBranding)
+def delete_site_branding_logo_on_replace(sender, instance, **kwargs):
+    if not instance.pk:
+        return
+    previous = sender.objects.filter(pk=instance.pk).only("logo_image").first()
+    if previous and previous.logo_image and previous.logo_image != instance.logo_image:
+        _delete_file(previous.logo_image)
 
 
 @receiver(pre_save, sender=UserProfile)

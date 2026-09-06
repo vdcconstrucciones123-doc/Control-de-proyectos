@@ -29,10 +29,13 @@ from .models import (
     ReportFront,
     ReportMembership,
     ReportProject,
+    SiteBranding,
     UserProfile,
 )
 
 ROLE_LABELS = dict(ProjectMembership.ROLE_CHOICES)
+PROGRESS_ENTRY_STATUSES = {"En proceso", "Terminado", "Pendiente", "Observado"}
+INCIDENT_ENTRY_STATUSES = {"Abierto", "Cerrado", "Borrador"}
 logger = logging.getLogger(__name__)
 
 
@@ -406,6 +409,10 @@ def _get_user_report_or_404(project, user, report_id):
     return report
 
 
+def _get_site_branding():
+    return SiteBranding.objects.order_by("-updated_at", "-created_at").first()
+
+
 def _apply_report_payload(report, payload, files=None):
     report_type = (payload.get("reportType") or payload.get("type") or report.report_type or ProjectReport.TYPE_PROGRESS).strip()
     if report_type not in dict(ProjectReport.TYPE_CHOICES):
@@ -440,6 +447,7 @@ def home(request, project_slug=None, report_id=None, front_id=None, new_report=F
         "project_form": ProjectForm(),
         "report_form": ReportMetaForm(),
         "report_type_form": ReportTypeForm(),
+        "site_branding": _get_site_branding(),
         "report_id": report_id,
         "front_id": front_id,
         "new_report": new_report,
@@ -480,7 +488,7 @@ def register(request):
         UserProfile.objects.update_or_create(user=user, defaults={"is_approved": False})
         login(request, user)
         return redirect("registration_pending")
-    return render(request, "registration/register.html", {"form": form})
+    return render(request, "registration/register.html", {"form": form, "site_branding": _get_site_branding()})
 
 
 def registration_pending(request):
@@ -489,11 +497,16 @@ def registration_pending(request):
     profile = getattr(request.user, "profile", None)
     if request.user.is_superuser or (profile and profile.is_approved):
         return redirect("panel_principal")
-    return render(request, "registration/pending.html")
+    return render(request, "registration/pending.html", {"site_branding": _get_site_branding()})
 
 
 class CustomLoginView(LoginView):
     template_name = "registration/login.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["site_branding"] = _get_site_branding()
+        return context
 
     def form_valid(self, form):
         user = form.get_user()
@@ -994,6 +1007,9 @@ def report_entries_api(request, project_slug, report_id):
 
     if not front_id or not status:
         return JsonResponse({"error": "Frente y estado son obligatorios."}, status=400)
+    allowed_statuses = INCIDENT_ENTRY_STATUSES if report.report_type == ProjectReport.TYPE_INCIDENT else PROGRESS_ENTRY_STATUSES
+    if status not in allowed_statuses:
+        return JsonResponse({"error": "El estado no corresponde al tipo de reporte."}, status=400)
     if report.report_type == ProjectReport.TYPE_INCIDENT and not incident_date:
         return JsonResponse({"error": "La fecha del issue es obligatoria para una incidencia."}, status=400)
     front = get_object_or_404(report.fronts.all(), pk=front_id)
@@ -1090,6 +1106,9 @@ def report_entry_detail_api(request, project_slug, report_id, entry_id):
         return JsonResponse({"entry": _serialize_entry(entry)})
 
     entry.front = get_object_or_404(report.fronts.all(), pk=front_id)
+    allowed_statuses = INCIDENT_ENTRY_STATUSES if report.report_type == ProjectReport.TYPE_INCIDENT else PROGRESS_ENTRY_STATUSES
+    if status not in allowed_statuses:
+        return JsonResponse({"error": "El estado no corresponde al tipo de reporte."}, status=400)
     entry.status = status
     entry.description = description
     if report.report_type == ProjectReport.TYPE_INCIDENT and not incident_date:

@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.models import User
 from django.utils import timezone
 
-from .models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportProject, UserProfile
+from .models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportProject, SiteBranding, UserProfile
 
 
 class UserProfileInline(admin.StackedInline):
@@ -52,6 +52,13 @@ class UserProfileAdmin(admin.ModelAdmin):
     @admin.action(description="Aprobar cuentas seleccionadas")
     def approve_profiles(self, request, queryset):
         queryset.update(is_approved=True, approved_at=timezone.now(), approved_by=request.user)
+
+
+@admin.register(SiteBranding)
+class SiteBrandingAdmin(admin.ModelAdmin):
+    list_display = ("site_name", "site_subtitle", "updated_at")
+    search_fields = ("site_name", "site_subtitle")
+    fields = ("site_name", "site_subtitle", "logo_image")
 
 
 class ProjectMembershipInline(admin.TabularInline):

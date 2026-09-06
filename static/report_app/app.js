@@ -17,6 +17,9 @@
     'Terminado': 'bg-success',
     'Pendiente': 'bg-secondary',
     'Observado': 'bg-warning text-dark',
+    'Abierto': 'bg-primary',
+    'Cerrado': 'bg-success',
+    'Borrador': 'bg-secondary',
     'Recepción': 'bg-primary',
     'Validación': 'bg-info text-dark',
     'Entrega': 'bg-success'
@@ -27,6 +30,8 @@
   const UPLOAD_MAX_DIMENSION = 1800;
   const UPLOAD_IMAGE_QUALITY = 0.8;
   const UPLOAD_FILE_MIME = 'image/jpeg';
+  const PROGRESS_STATUSES = ['En proceso', 'Terminado', 'Pendiente', 'Observado'];
+  const INCIDENT_STATUSES = ['Abierto', 'Cerrado', 'Borrador'];
   let pendingCoverPhotoFile = null;
    let pendingProjectPhotoFile = null;
   let pendingProfilePhotoFile = null;
@@ -206,7 +211,7 @@
         }
         applyPlanTransform();
         const issueMarkers = (project?.reports || []).flatMap(report => (report.type === 'incidencia' || report.type === 'avances')
-          ? (report.entries || []).filter(entry => Number(entry.planId) === Number(plan.id) && entry.planX != null && entry.planY != null).map(entry => ({ id: `issue-${entry.id}`, entryId: entry.id, page: 1, x: entry.planX, y: entry.planY, label: `${entry.buildingLocation || 'Punto'} · ${entry.status || 'Sin estado'} · ${entry.responsibleCompany || 'Sin empresa'}` }))
+          ? (report.entries || []).filter(entry => Number(entry.planId) === Number(plan.id) && entry.planX != null && entry.planY != null).map(entry => ({ id: `issue-${entry.id}`, entryId: entry.id, reportId: report.id, reportType: report.type, code: getPlanPointCode(report.type, entry, report.entries), page: 1, x: entry.planX, y: entry.planY, label: `${getPlanPointCode(report.type, entry, report.entries)} · ${report.type === 'incidencia' ? 'Incidencia' : 'Avance'} · ${entry.buildingLocation || 'Punto'} · ${entry.status || 'Sin estado'}` }))
           : []);
         renderPlanMarkers(issueMarkers.length ? issueMarkers : (plan.markers || []), project?.canEdit);
         $('planZoomValue').textContent = `${Math.round(planZoom * 100)}%`;
@@ -214,6 +219,12 @@
         if(markerModeButton){
           markerModeButton.classList.toggle('d-none', !project?.canEdit);
           markerModeButton.setAttribute('aria-pressed', String(planMarkerMode));
+          const selectedTypeLabel = projectDashboardReportType === 'incidencia'
+            ? 'Reporte de incidencia'
+            : projectDashboardReportType === 'avances'
+              ? 'Reporte de avances'
+              : 'Selecciona un reporte';
+          markerModeButton.innerHTML = `<i class="bi bi-geo-alt me-1"></i>Agregar punto · ${selectedTypeLabel}`;
         }
         $('planCanvasWrap')?.classList.toggle('is-marker-mode', !!planMarkerMode && !!project?.canEdit);
         lastPlanRenderSignature = renderSignature;
@@ -234,7 +245,7 @@
     if(!layer) return;
     const markerScale = Math.max(0.1, Math.min(1, 1 / planZoom));
     layer.innerHTML = markers.filter(marker => Number(marker.page) === 1).map((marker, index) => `
-      <button type="button" class="plan-marker" data-marker-id="${marker.id}" data-entry-id="${marker.entryId || ''}" style="left:${marker.x * 100}%;top:${marker.y * 100}%;transform:translate(-50%, -50%) scale(${markerScale})" title="${escapeHtml(marker.label || `Punto ${index + 1}`)}" aria-label="${escapeHtml(marker.label || `Punto ${index + 1}`)}">${index + 1}</button>`).join('');
+      <button type="button" class="plan-marker" data-marker-id="${marker.id}" data-entry-id="${marker.entryId || ''}" data-report-id="${marker.reportId || ''}" data-report-type="${marker.reportType || ''}" style="left:${marker.x * 100}%;top:${marker.y * 100}%;transform:translate(-50%, -50%) scale(${markerScale})" title="${escapeHtml(marker.label || `Punto ${index + 1}`)}" aria-label="${escapeHtml(marker.label || `Punto ${index + 1}`)}">${index + 1}</button>`).join('');
     $('planViewerHint').textContent = canEdit
       ? (planMarkerMode ? 'Selecciona una ubicación en el plano' : 'Activa "Agregar punto" para marcar una ubicación')
       : 'Vista de solo lectura';
@@ -1657,6 +1668,12 @@
     }
     return 'Sin ubicación';
   }
+  function getPlanPointCode(reportType, entry, entries){
+    const prefix = reportType === 'incidencia' ? 'I' : 'A';
+    const planEntries = (entries || []).filter(item => item.planId != null && item.planX != null && item.planY != null);
+    const index = planEntries.findIndex(item => Number(item.id) === Number(entry?.id));
+    return `${prefix}-${String(Math.max(0, index) + 1).padStart(3, '0')}`;
+  }
   async function removeFront(id){
     if(!ensureCanEditReport('No tienes permisos para eliminar frentes en este reporte.')){
       return;
@@ -1820,7 +1837,7 @@
     return pages;
   }
 
-  function buildSection3Pages(groups){
+  function buildSection3Pages(groups, sectionNumber = 3){
     if(!groups.length){
       return [{
         type: 'content',
@@ -1830,10 +1847,10 @@
     }
 
     const pages = [];
-    const sectionHeader = '<div class="report-section-title">3. REPORTE FOTOGRÁFICO</div>';
+    const sectionHeader = `<div class="report-section-title">${sectionNumber}. REPORTE FOTOGRÁFICO</div>`;
 
     groups.forEach((group, groupIndex) => {
-      const frontLabel = `3.${groupIndex + 1}. ${group.front.name}`;
+      const frontLabel = `${sectionNumber}.${groupIndex + 1}. ${group.front.name}`;
       const items = Array.isArray(group.items) ? group.items : [];
 
       if(!items.length){
@@ -1884,9 +1901,12 @@
           const imagesMarkup = row.photos.length ? `<div class="report-entry-images">${row.photos.map(src => `<div class="report-entry-image-frame"><img src="${src}" class="thumb" alt="Foto"></div>`).join('')}</div>` : '';
           const note = row.continuation ? `<div class="report-entry-note">Continuación</div>` : '';
           const item = row.item;
-          const incidenceInfo = state.reportType === 'incidencia' ? `<div class="report-incident-info"><div><strong>Fecha:</strong> ${escapeHtml(item.incidentDate || 'Sin fecha')}</div><div><strong>Estado:</strong> ${escapeHtml(item.status || 'Sin estado')}</div><div><strong>Empresa responsable:</strong> ${escapeHtml(item.responsibleCompany || 'Sin empresa')}</div><div><strong>Ubicación:</strong> ${escapeHtml(item.buildingLocation || 'Sin ubicación')}</div></div>` : '';
+          const itemIndex = items.indexOf(item);
+          const hasLocation = !!(item.buildingLocation || (item.planId && item.planX != null && item.planY != null));
+          const locationInfo = hasLocation ? `<div><strong>Ubicación:</strong> ${escapeHtml(getIssueLocationLabel(item, itemIndex))}</div>` : '';
+          const reportEntryInfo = `<div class="report-incident-info"><div><strong>Estado:</strong> ${escapeHtml(item.status || 'Sin estado')}</div>${state.reportType === 'incidencia' ? `<div><strong>Fecha:</strong> ${escapeHtml(item.incidentDate || 'Sin fecha')}</div><div><strong>Empresa responsable:</strong> ${escapeHtml(item.responsibleCompany || 'Sin empresa')}</div>` : ''}${locationInfo}</div>`;
 
-          return `<div class="report-entry"><div class="report-entry-body"><div class="report-entry-text">${incidenceInfo}${item.desc ? `<div class="report-entry-desc"><strong>Descripción:</strong> ${escapeHtml(item.desc)}</div>` : ''}${note}</div>${imagesMarkup}</div></div>`;
+          return `<div class="report-entry"><div class="report-entry-body"><div class="report-entry-text">${reportEntryInfo}${item.desc ? `<div class="report-entry-desc"><strong>Descripción:</strong> ${escapeHtml(item.desc)}</div>` : ''}${note}</div>${imagesMarkup}</div></div>`;
         }).join('');
 
         pages.push({
@@ -1957,7 +1977,7 @@
     }
     const profileSection = $('profileSection');
     const routeInfo = getRouteInfo();
-    const showProfile = !!state.showProfileView && !routeInfo.onPanelPath;
+    const showProfile = !!state.showProfileView;
     $('reportWorkspaceSection')?.classList.toggle('preview-only', !!state.showPreviewMode);
     profileSection?.classList.toggle('d-none', !showProfile);
     $('dashboardHubSection')?.classList.toggle('d-none', showProfile || (isOnReportWorkspaceRoute() && !routeInfo.onPanelPath));
@@ -2061,11 +2081,46 @@
   function renderReportTypeUi(){
     const equipmentMode = isEquipmentReport();
     const incidentMode = state.reportType === 'incidencia';
+    const incidentKpiSection = $('incidentKpiSection');
+    if(incidentKpiSection){
+      const counts = state.entries.reduce((summary, entry) => {
+        if(entry.status === 'Abierto') summary.open += 1;
+        if(entry.status === 'Cerrado') summary.closed += 1;
+        if(entry.status === 'Borrador') summary.draft += 1;
+        return summary;
+      }, { open: 0, closed: 0, draft: 0 });
+      incidentKpiSection.classList.toggle('d-none', !incidentMode);
+      $('incidentKpiOpen').textContent = counts.open;
+      $('incidentKpiClosed').textContent = counts.closed;
+      $('incidentKpiDraft').textContent = counts.draft;
+      const total = counts.open + counts.closed + counts.draft;
+      const percentages = {
+        open: total ? Math.round((counts.open / total) * 100) : 0,
+        closed: total ? Math.round((counts.closed / total) * 100) : 0,
+        draft: total ? Math.round((counts.draft / total) * 100) : 0,
+      };
+      $('incidentKpiOpenBar').style.width = `${percentages.open}%`;
+      $('incidentKpiClosedBar').style.width = `${percentages.closed}%`;
+      $('incidentKpiDraftBar').style.width = `${percentages.draft}%`;
+      $('incidentKpiOpenPercent').textContent = `${percentages.open}%`;
+      $('incidentKpiClosedPercent').textContent = `${percentages.closed}%`;
+      $('incidentKpiDraftPercent').textContent = `${percentages.draft}%`;
+    }
+    const statusSelect = $('statusSelect');
+    if(statusSelect){
+      const allowedStatuses = incidentMode ? INCIDENT_STATUSES : PROGRESS_STATUSES;
+      const currentStatus = statusSelect.value;
+      statusSelect.innerHTML = allowedStatuses.map(status => `<option value="${status}">${status}</option>`).join('');
+      statusSelect.value = allowedStatuses.includes(currentStatus) ? currentStatus : allowedStatuses[0];
+    }
     $('incidentFields')?.classList.toggle('d-none', !incidentMode);
     $('entryLocationFields')?.classList.toggle('d-none', equipmentMode);
     if(incidentMode) renderResponsibleCompanySelect();
     document.querySelectorAll('.js-metadata-obra-only').forEach(el => {
-      el.classList.toggle('d-none', equipmentMode);
+      el.classList.toggle('d-none', equipmentMode || incidentMode);
+    });
+    document.querySelectorAll('.js-obra-summary-only').forEach(el => {
+      el.classList.toggle('d-none', equipmentMode || incidentMode);
     });
     const workspaceTitle = $('reportWorkspaceTitle');
     const workspaceDesc = $('reportWorkspaceDesc');
@@ -2263,14 +2318,96 @@
       return;
     }
     if(state.reportType === 'incidencia'){
-      list.innerHTML = `<div class="incident-table-wrap"><table class="incident-table"><thead><tr><th>N.º</th><th>Frente</th><th>Descripción</th><th>Ubicación</th><th>Estado</th><th>Fecha</th><th>Empresa responsable</th><th>Acciones</th></tr></thead><tbody>${entries.map((entry, index) => { const front = state.fronts.find(item => Number(item.id) === Number(entry.frontId)); return `<tr><td>${index + 1}</td><td>${escapeHtml(front?.name || 'Sin frente')}</td><td class="incident-table-description">${escapeHtml(entry.desc || 'Sin descripción')}</td><td>${escapeHtml(getIssueLocationLabel(entry, index))}</td><td>${statusBadge(entry.status || 'Sin estado')}</td><td>${escapeHtml(entry.incidentDate || 'Sin fecha')}</td><td>${escapeHtml(entry.responsibleCompany || 'Sin empresa')}</td><td><div class="incident-table-actions"><button data-id="${entry.id}" class="btn btn-sm btn-outline-secondary view-entry-detail" title="Ver detalle" aria-label="Ver detalle"><i class="bi bi-eye"></i></button><button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-entry" title="Editar" aria-label="Editar"><i class="bi bi-pencil"></i></button><button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-entry" title="Eliminar" aria-label="Eliminar"><i class="bi bi-trash3"></i></button></div></td></tr>`; }).join('')}</tbody></table></div>`;
+      const statusOptions = [...new Set(entries.map(entry => entry.status).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+      const companyOptions = [...new Set(entries.map(entry => entry.responsibleCompany).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+      const frontOptions = [...new Set(entries.map(entry => state.fronts.find(item => Number(item.id) === Number(entry.frontId))?.name || 'Sin frente'))].sort((a, b) => a.localeCompare(b));
+      list.innerHTML = `<div class="incident-table-tools">
+        <div class="incident-table-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="incident-filter-search" placeholder="Buscar issue, ubicación o descripción..." aria-label="Buscar en issues"></div>
+        <select class="form-select form-select-sm incident-filter-status" aria-label="Filtrar por estado"><option value="">Todos los estados</option>${statusOptions.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}</select>
+        <select class="form-select form-select-sm incident-filter-company" aria-label="Filtrar por empresa"><option value="">Todas las empresas</option>${companyOptions.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}</select>
+        <select class="form-select form-select-sm incident-filter-front" aria-label="Filtrar por frente"><option value="">Todos los frentes</option>${frontOptions.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}</select>
+        <button type="button" class="btn btn-sm btn-outline-secondary incident-clear-filters"><i class="bi bi-arrow-counterclockwise me-1"></i>Limpiar</button>
+      </div><div class="incident-table-wrap"><table class="incident-table"><thead><tr><th>N.º</th><th>Frente</th><th>Descripción</th><th>Ubicación</th><th>Estado</th><th>Fecha</th><th>Empresa responsable</th><th>Acciones</th></tr></thead><tbody class="incident-table-body"></tbody></table></div><div class="incident-table-footer"><span class="incident-table-count"></span><div class="incident-table-pagination"></div></div>`;
+      const tableBody = list.querySelector('.incident-table-body');
+      const countLabel = list.querySelector('.incident-table-count');
+      const pagination = list.querySelector('.incident-table-pagination');
+      const searchInput = list.querySelector('.incident-filter-search');
+      const statusFilter = list.querySelector('.incident-filter-status');
+      const companyFilter = list.querySelector('.incident-filter-company');
+      const frontFilter = list.querySelector('.incident-filter-front');
+      const pageSize = 10;
+      const tableState = { page: 1, sortKey: 'date', sortDirection: 'desc' };
+      const getRowData = entry => {
+        const front = state.fronts.find(item => Number(item.id) === Number(entry.frontId));
+        return { entry, frontName: front?.name || 'Sin frente', location: getIssueLocationLabel(entry, entries.indexOf(entry)) };
+      };
+      const renderTable = () => {
+        const query = (searchInput.value || '').trim().toLocaleLowerCase();
+        const filtered = entries.map(getRowData).filter(row => {
+          const searchable = [row.frontName, row.entry.desc, row.location, row.entry.status, row.entry.incidentDate, row.entry.responsibleCompany].join(' ').toLocaleLowerCase();
+          return (!query || searchable.includes(query))
+            && (!statusFilter.value || row.entry.status === statusFilter.value)
+            && (!companyFilter.value || row.entry.responsibleCompany === companyFilter.value)
+            && (!frontFilter.value || row.frontName === frontFilter.value);
+        }).sort((left, right) => {
+          const values = {
+            front: [left.frontName, right.frontName],
+            status: [left.entry.status || '', right.entry.status || ''],
+            date: [left.entry.incidentDate || '', right.entry.incidentDate || ''],
+            company: [left.entry.responsibleCompany || '', right.entry.responsibleCompany || ''],
+          }[tableState.sortKey] || ['', ''];
+          const result = String(values[0]).localeCompare(String(values[1]), 'es', { numeric: true });
+          return tableState.sortDirection === 'asc' ? result : -result;
+        });
+        const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+        tableState.page = Math.min(tableState.page, totalPages);
+        const start = (tableState.page - 1) * pageSize;
+        const pageRows = filtered.slice(start, start + pageSize);
+        tableBody.innerHTML = pageRows.map((row, index) => `<tr><td>${start + index + 1}</td><td>${escapeHtml(row.frontName)}</td><td class="incident-table-description">${escapeHtml(row.entry.desc || 'Sin descripción')}</td><td>${escapeHtml(row.location)}</td><td>${statusBadge(row.entry.status || 'Sin estado')}</td><td>${escapeHtml(row.entry.incidentDate || 'Sin fecha')}</td><td>${escapeHtml(row.entry.responsibleCompany || 'Sin empresa')}</td><td><div class="incident-table-actions"><button data-id="${row.entry.id}" class="btn btn-sm btn-outline-secondary view-entry-detail" title="Ver detalle" aria-label="Ver detalle"><i class="bi bi-eye"></i></button><button data-id="${row.entry.id}" class="btn btn-sm btn-outline-primary edit-entry" title="Editar" aria-label="Editar"><i class="bi bi-pencil"></i></button><button data-id="${row.entry.id}" class="btn btn-sm btn-outline-danger delete-entry" title="Eliminar" aria-label="Eliminar"><i class="bi bi-trash3"></i></button></div></td></tr>`).join('') || '<tr><td colspan="8" class="incident-table-empty">No hay resultados para esos filtros.</td></tr>';
+        countLabel.textContent = filtered.length ? `Mostrando ${start + 1}-${Math.min(start + pageSize, filtered.length)} de ${filtered.length} issues` : '0 issues encontrados';
+        pagination.innerHTML = Array.from({ length: totalPages }, (_, index) => `<button type="button" class="btn btn-sm ${index + 1 === tableState.page ? 'btn-primary' : 'btn-outline-secondary'} incident-page-btn" data-page="${index + 1}">${index + 1}</button>`).join('');
+        pagination.querySelectorAll('.incident-page-btn').forEach(button => button.addEventListener('click', () => { tableState.page = Number(button.dataset.page); renderTable(); }));
+        list.querySelectorAll('.edit-entry').forEach(btn => btn.addEventListener('click', () => {
+          const entry = getEntryById(Number(btn.dataset.id));
+          if(!entry) return;
+          state.selectedEntryId = null;
+          state.editingEntryId = entry.id;
+          state.showIssueForm = true;
+          issueFormManuallyOpened = true;
+          $('selectFront').value = entry.frontId;
+          $('selectFront').disabled = false;
+          $('statusSelect').value = entry.status;
+          loadIncidentFields(entry);
+          $('entryDesc').value = entry.desc || '';
+          $('addEntryBtn').textContent = 'Guardar cambios';
+          $('cancelEntryEditBtn').classList.remove('d-none');
+          pendingRemovedEntryImageIds = new Set();
+          clearEntryPhotoInputs();
+          save();
+          renderAll();
+          renderExistingEntryImages();
+          $('entryDesc')?.focus();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }));
+        list.querySelectorAll('.delete-entry').forEach(btn => btn.addEventListener('click', () => { if(confirm('¿Borrar esta entrada del reporte?')) removeEntry(Number(btn.dataset.id)); }));
+        list.querySelectorAll('.view-entry-detail').forEach(btn => btn.addEventListener('click', () => { state.showIssueForm = false; state.selectedEntryId = Number(btn.dataset.id); renderAll(); }));
+      };
+      list.querySelectorAll('.incident-table th').forEach((header, index) => {
+        const sortKey = ['number', 'front', 'description', 'location', 'status', 'date', 'company', 'actions'][index];
+        if(!['front', 'status', 'date', 'company'].includes(sortKey)) return;
+        header.classList.add('incident-sortable');
+        header.addEventListener('click', () => { tableState.sortDirection = tableState.sortKey === sortKey && tableState.sortDirection === 'asc' ? 'desc' : 'asc'; tableState.sortKey = sortKey; tableState.page = 1; renderTable(); });
+      });
+      [searchInput, statusFilter, companyFilter, frontFilter].forEach(control => control.addEventListener('input', () => { tableState.page = 1; renderTable(); }));
+      list.querySelector('.incident-clear-filters').addEventListener('click', () => { searchInput.value = ''; statusFilter.value = ''; companyFilter.value = ''; frontFilter.value = ''; tableState.page = 1; renderTable(); });
+      renderTable();
     } else {
       list.innerHTML = entries.map((entry, index) => {
         const locationLabel = (entry.buildingLocation || (entry.planId && entry.planX != null && entry.planY != null)) ? getIssueLocationLabel(entry, index) : '';
         return `<div class="issue-item card mb-2 p-3"><div class="d-flex justify-content-between align-items-start flex-wrap gap-2"><div><strong>${escapeHtml(entry.desc || 'Issue sin descripción')}</strong><div class="small text-muted">${escapeHtml(entry.status)} · ${escapeHtml(selectedFront.name)}${locationLabel ? ` · ${escapeHtml(locationLabel)}` : ''}</div></div><div class="d-flex gap-2"><button data-id="${entry.id}" class="btn btn-sm btn-outline-secondary view-entry-detail">Ver detalle</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-entry">Editar</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-entry">Eliminar</button></div></div></div>`;
       }).join('');
     }
-    list.querySelectorAll('.edit-entry').forEach(btn => btn.addEventListener('click', () => {
+    if(state.reportType !== 'incidencia') list.querySelectorAll('.edit-entry').forEach(btn => btn.addEventListener('click', () => {
       const entry = getEntryById(Number(btn.dataset.id));
       if(!entry) return;
       state.selectedEntryId = null;
@@ -2293,11 +2430,11 @@
       $('entryDesc')?.focus();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }));
-    list.querySelectorAll('.delete-entry').forEach(btn => btn.addEventListener('click', () => {
+    if(state.reportType !== 'incidencia') list.querySelectorAll('.delete-entry').forEach(btn => btn.addEventListener('click', () => {
       const id = Number(btn.dataset.id);
       if(confirm('¿Borrar esta entrada del reporte?')) removeEntry(id);
     }));
-    list.querySelectorAll('.view-entry-detail').forEach(btn => btn.addEventListener('click', () => {
+    if(state.reportType !== 'incidencia') list.querySelectorAll('.view-entry-detail').forEach(btn => btn.addEventListener('click', () => {
       const id = Number(btn.dataset.id);
       state.showIssueForm = false;
       state.selectedEntryId = id;
@@ -2497,9 +2634,12 @@
               <div class="dashboard-project-meta-row"><span>Dirección</span><strong>${escapeHtml(project.projectLocation || 'Sin ubicación')}</strong></div>
             </div>
             <span class="dashboard-project-status ${project.reports?.length ? 'is-active' : ''}">${project.reports?.length ? 'ACTIVO' : 'PLANNING'}</span>
-            <div class="dashboard-project-actions d-flex gap-2 flex-wrap">
-              ${project.canEdit ? `<button type="button" data-id="${project.id}" class="btn btn-sm btn-outline-secondary dashboard-project-edit" aria-label="Editar proyecto" title="Editar proyecto"><i class="bi bi-pencil-square" aria-hidden="true"></i></button>` : ''}
-              ${project.canDelete ? `<button type="button" data-id="${project.id}" class="btn btn-sm btn-outline-danger dashboard-project-delete" aria-label="Eliminar proyecto" title="Eliminar proyecto"><i class="bi bi-trash3" aria-hidden="true"></i></button>` : ''}
+            <div class="dashboard-project-actions">
+              <button type="button" class="btn btn-sm btn-outline-secondary dashboard-project-menu-toggle" aria-label="Más acciones" title="Más acciones" aria-expanded="false"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button>
+              <div class="dashboard-project-menu" role="menu">
+                ${project.canEdit ? `<button type="button" data-id="${project.id}" class="dashboard-project-menu-item dashboard-project-edit" role="menuitem"><i class="bi bi-pencil-square me-2" aria-hidden="true"></i>Editar</button>` : ''}
+                ${project.canDelete ? `<button type="button" data-id="${project.id}" class="dashboard-project-menu-item dashboard-project-delete is-danger" role="menuitem"><i class="bi bi-trash3 me-2" aria-hidden="true"></i>Eliminar</button>` : ''}
+              </div>
             </div>
           </div>
         `).join('') || '<div class="dashboard-projects-empty">No se encontraron proyectos.</div>';
@@ -2693,21 +2833,23 @@
     if(isEquipmentReport()){
       pages.push(...buildEquipmentPages(state.entries));
     } else {
-    pages.push({
-      type: 'section',
-      tag: '1. OBJETIVO + 2. ANÁLISIS',
-      body: `<div class="report-page-content"><div class="report-section-title">1. OBJETIVO</div><div class="report-section-body">${escapeHtml(objectiveText || 'El presente informe tiene como objetivo registrar de manera técnica y fotográfica los avances físicos logrados durante la presente semana de trabajo, detallando las partidas ejecutadas en los frentes de demolición, estructuras, albañilería, instalaciones y acabados, asegurando el control de calidad en cada proceso.')}</div><div class="report-section-title" style="margin-top: 24px;">2. ANÁLISIS: AVANCES DE LA SEMANA</div>${laborDateRange ? `<div class="report-section-subtitle"><strong>Fecha de labores:</strong> ${escapeHtml(laborDateRange)}</div>` : ''}<div class="report-section-body">${escapeHtml(analysisText || 'Agregar el análisis de las actividades ejecutadas y avanzadas durante la semana.')}</div>${buildSection2FrontList(groups)}</div>`
-    });
+      if(state.reportType !== 'incidencia'){
+        pages.push({
+          type: 'section',
+          tag: '1. OBJETIVO + 2. ANÁLISIS',
+          body: `<div class="report-page-content"><div class="report-section-title">1. OBJETIVO</div><div class="report-section-body">${escapeHtml(objectiveText || 'El presente informe tiene como objetivo registrar de manera técnica y fotográfica los avances físicos logrados durante la presente semana de trabajo, detallando las partidas ejecutadas en los frentes de demolición, estructuras, albañilería, instalaciones y acabados, asegurando el control de calidad en cada proceso.')}</div><div class="report-section-title" style="margin-top: 24px;">2. ANÁLISIS: AVANCES DE LA SEMANA</div>${laborDateRange ? `<div class="report-section-subtitle"><strong>Fecha de labores:</strong> ${escapeHtml(laborDateRange)}</div>` : ''}<div class="report-section-body">${escapeHtml(analysisText || 'Agregar el análisis de las actividades ejecutadas y avanzadas durante la semana.')}</div>${buildSection2FrontList(groups)}</div>`
+        });
+      }
 
-    pages.push(...buildSection3Pages(groups));
+      pages.push(...buildSection3Pages(groups, state.reportType === 'incidencia' ? 1 : 3));
 
-    if(state.reportType !== 'incidencia' && !isEquipmentReport()){
-      pages.push({
-        type: 'section',
-        tag: '4. CONCLUSIONES + 5. RECOMENDACIONES',
-        body: `<div class="report-page-content"><div class="report-section-title">4. CONCLUSIONES</div><div class="report-section-body">${conclusionMarkup || '<div class="report-empty-state">Escriba aquí las conclusiones del avance o las observaciones finales.</div>'}</div><div class="report-section-title" style="margin-top: 24px;">5. RECOMENDACIONES</div><div class="report-section-body">${recommendationMarkup || '<div class="report-empty-state">Escriba aquí las recomendaciones del trabajo o actividades pendientes.</div>'}</div></div>`
-      });
-    }
+      if(state.reportType !== 'incidencia' && !isEquipmentReport()){
+        pages.push({
+          type: 'section',
+          tag: '4. CONCLUSIONES + 5. RECOMENDACIONES',
+          body: `<div class="report-page-content"><div class="report-section-title">4. CONCLUSIONES</div><div class="report-section-body">${conclusionMarkup || '<div class="report-empty-state">Escriba aquí las conclusiones del avance o las observaciones finales.</div>'}</div><div class="report-section-title" style="margin-top: 24px;">5. RECOMENDACIONES</div><div class="report-section-body">${recommendationMarkup || '<div class="report-empty-state">Escriba aquí las recomendaciones del trabajo o actividades pendientes.</div>'}</div></div>`
+        });
+      }
     }
     const totalPages = pages.length;
     pages.forEach((page, index) => {
@@ -3422,6 +3564,15 @@
       updateSelectionScreenSections();
     });
     $('dashboardProjectList')?.addEventListener('click', e => {
+      const menuToggle = e.target.closest('.dashboard-project-menu-toggle');
+      if(menuToggle){
+        e.stopPropagation();
+        const menu = menuToggle.nextElementSibling;
+        document.querySelectorAll('.dashboard-project-menu.is-open').forEach(item => { if(item !== menu) item.classList.remove('is-open'); });
+        menu?.classList.toggle('is-open');
+        menuToggle.setAttribute('aria-expanded', String(menu?.classList.contains('is-open')));
+        return;
+      }
       const projectCard = e.target.closest('.dashboard-project-item');
       if(projectCard && !e.target.closest('button')){
         const id = Number(projectCard.dataset.openProject);
@@ -3601,6 +3752,10 @@
       applyPlanTransform();
     });
     $('planMarkerModeBtn')?.addEventListener('click', () => {
+      if(!['incidencia', 'avances'].includes(projectDashboardReportType)){
+        alert('Primero selecciona arriba si el punto será para Reporte de incidencia o Reporte de avances.');
+        return;
+      }
       planMarkerMode = !planMarkerMode;
       $('planMarkerModeBtn').setAttribute('aria-pressed', String(planMarkerMode));
       renderAll();
@@ -3695,13 +3850,49 @@
         const entryId = Number(markerButton.dataset.entryId);
         if(entryId){
           const entry = (project.reports || []).flatMap(report => report.entries || []).find(item => Number(item.id) === entryId);
+          const reportId = Number(markerButton.dataset.reportId);
+          const reportType = markerButton.dataset.reportType || '';
+          const report = (project.reports || []).find(item => Number(item.id) === reportId)
+            || (project.reports || []).find(item => (item.entries || []).some(entryItem => Number(entryItem.id) === entryId));
           const info = $('planMarkerInfo');
           if(entry && info){
             const pointNumber = Array.from(document.querySelectorAll('.plan-marker')).indexOf(markerButton) + 1;
-            info.innerHTML = `<strong>Punto ${pointNumber}</strong><span>Fecha: ${escapeHtml(entry.incidentDate || 'Sin fecha')}</span><span>Estado: ${escapeHtml(entry.status || 'Sin estado')}</span><span>Ubicación: ${escapeHtml(entry.buildingLocation || `Punto ${pointNumber}`)}</span><span>Empresa responsable: ${escapeHtml(entry.responsibleCompany || 'Sin empresa')}</span><span>${escapeHtml(entry.desc || 'Sin descripción')}</span>`;
+            const reportTypeLabel = reportType === 'incidencia' ? 'Reporte de incidencia' : 'Reporte de avance';
+            const pointCode = getPlanPointCode(reportType, entry, report?.entries || [entry]);
+            info.innerHTML = `<strong>${pointCode}</strong><span>${reportTypeLabel}</span><span>Estado: ${escapeHtml(entry.status || 'Sin estado')}</span><span>Ubicación: ${escapeHtml(entry.buildingLocation || `Punto ${pointNumber}`)}</span>${reportType === 'incidencia' ? `<span>Fecha: ${escapeHtml(entry.incidentDate || 'Sin fecha')}</span><span>Empresa responsable: ${escapeHtml(entry.responsibleCompany || 'Sin empresa')}</span>` : ''}<span>${escapeHtml(entry.desc || 'Sin descripción')}</span><button type="button" class="btn btn-primary btn-sm plan-open-entry-btn">Abrir formulario</button>`;
+              const pointMarkup = planEntries.map(entry => `<span class="incident-plan-pdf-marker" style="left:${entry.planX * 100}%;top:${entry.planY * 100}%">${getPlanPointCode(state.reportType, entry, state.entries)}</span>`).join('');
             info.style.left = `${Math.min(75, Math.max(25, Number(entry.planX) * 100))}%`;
             info.style.top = `${Math.min(85, Math.max(15, Number(entry.planY) * 100))}%`;
             info.classList.remove('d-none');
+            info.querySelector('.plan-open-entry-btn')?.addEventListener('click', event => {
+              event.stopPropagation();
+              if(!report) return;
+              project.currentReportId = report.id;
+              state.currentProjectId = project.id;
+              state.currentReportId = report.id;
+              state.existingReportOpen = true;
+              state.reportMetaComplete = true;
+              state.showPreviewMode = false;
+              state.workspaceView = 'issues';
+              state.currentFrontId = entry.frontId;
+              state.editingEntryId = project.canEdit ? entry.id : null;
+              state.selectedEntryId = project.canEdit ? null : entry.id;
+              state.showIssueForm = !!project.canEdit;
+              issueFormManuallyOpened = !!project.canEdit;
+              loadProject(project);
+              state.currentFrontId = entry.frontId;
+              state.workspaceView = 'issues';
+              state.showIssueForm = !!project.canEdit;
+              state.editingEntryId = project.canEdit ? entry.id : null;
+              state.selectedEntryId = project.canEdit ? null : entry.id;
+              save();
+              setReportRoute(project, report.id);
+              renderAll();
+              showAppScreen();
+              if(project.canEdit){
+                document.querySelector(`.edit-entry[data-id="${entry.id}"]`)?.click();
+              }
+            });
           }
           return;
         }
@@ -3718,18 +3909,39 @@
       }
       if(!planMarkerMode) return;
       const rect = $('planCanvas').getBoundingClientRect();
-      const marker = {
-        page: 1,
-        x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-        y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
-      };
-      try {
-        const data = await requestJson(`/api/projects/${project.slug}/plans/${plan.id}/markers/`, { method: 'POST', body: JSON.stringify(marker) });
-        plan.markers = [...(plan.markers || []), data.marker];
-        renderPlanMarkers(plan.markers, project.canEdit);
-      } catch(error) {
-        alert(error.message);
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      const report = (project.reports || []).find(item => item.type === projectDashboardReportType);
+      if(!report){
+        alert(`Primero crea un ${projectDashboardReportType === 'incidencia' ? 'Reporte de incidencia' : 'Reporte de avances'} para poder registrar el punto.`);
+        return;
       }
+      project.currentReportId = report.id;
+      state.currentProjectId = project.id;
+      state.currentReportId = report.id;
+      state.existingReportOpen = true;
+      state.reportMetaComplete = true;
+      state.showPreviewMode = false;
+      state.workspaceView = 'issues';
+      state.currentFrontId = report.fronts?.[0]?.id || null;
+      state.editingEntryId = null;
+      state.selectedEntryId = null;
+      state.showIssueForm = true;
+      issueFormManuallyOpened = true;
+      loadProject(project);
+      state.currentFrontId = report.fronts?.[0]?.id || null;
+      state.workspaceView = 'issues';
+      state.showIssueForm = true;
+      issueFormManuallyOpened = true;
+      save();
+      setReportRoute(project, report.id);
+      renderAll();
+      showAppScreen();
+      issuePlanPoint = { planId: plan.id, x, y };
+      if($('issuePlanId')) $('issuePlanId').value = String(plan.id);
+      if($('issuePlanX')) $('issuePlanX').value = String(x);
+      if($('issuePlanY')) $('issuePlanY').value = String(y);
+      if($('issuePlanPointStatus')) $('issuePlanPointStatus').textContent = `Punto seleccionado para ${projectDashboardReportType === 'incidencia' ? 'Reporte de incidencia' : 'Reporte de avances'}.`;
     });
     $('dashboardReportList')?.addEventListener('click', e => {
       const deleteButton = e.target.closest('[data-report-delete]');

@@ -8,10 +8,14 @@
   <section class="auth-screen">
     <div class="auth-shell auth-shell-register">
       <div class="auth-brand-panel">
-        <div class="brand-mark" aria-hidden="true">SA</div>
+        {% if site_branding and site_branding.logo_image %}
+          <img class="brand-logo brand-logo-lg" src="{{ site_branding.logo_image.url }}" alt="{{ site_branding.site_name|default:'Logo' }}">
+        {% else %}
+          <div class="brand-mark" aria-hidden="true">SA</div>
+        {% endif %}
         <div class="auth-kicker">Registro recibido</div>
-        <h1 class="auth-title">Tu cuenta está en revisión</h1>
-        <p class="auth-copy">Gracias por registrarte. Un administrador debe aprobar tu acceso antes de que puedas usar la plataforma.</p>
+        <h1 class="auth-title">{{ site_branding.site_name|default:'Tu cuenta está en revisión' }}</h1>
+        <p class="auth-copy">{{ site_branding.site_subtitle|default:'Gracias por registrarte. Un administrador debe aprobar tu acceso antes de que puedas usar la plataforma.' }}</p>
       </div>
       <div class="auth-form-panel">
         <div class="auth-form-card">

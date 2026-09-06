@@ -5,6 +5,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Site Audit Pro Lite{% endblock %}</title>
+  {% if site_branding and site_branding.logo_image %}
+    <link rel="icon" type="image/png" href="{{ site_branding.logo_image.url }}">
+    <link rel="apple-touch-icon" href="{{ site_branding.logo_image.url }}">
+  {% endif %}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
@@ -13,7 +17,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
   <link rel="stylesheet" href="{% static 'report_app/theme.css' %}?v=2">
-  <link rel="stylesheet" href="{% static 'report_app/styles.css' %}?v=53">
+  <link rel="stylesheet" href="{% static 'report_app/styles.css' %}?v=75">
   {% block extra_head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}" data-app-theme="site-audit" data-current-user="{% if request.user.is_authenticated %}{{ request.user.username }}{% else %}guest{% endif %}">
@@ -35,7 +39,7 @@
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script src="{% static 'report_app/app.js' %}?v=127"></script>
+  <script src="{% static 'report_app/app.js' %}?v=140"></script>
   {% endblock %}
 </body>
 </html>
