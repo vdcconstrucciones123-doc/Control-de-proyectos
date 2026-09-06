@@ -1504,7 +1504,38 @@ body:not(.sidebar-collapse) .app-main {
 .dashboard-project-item {
   align-items: center;
   cursor: pointer;
+  min-height: 86px;
+  padding: 0.55rem 0.7rem;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+#dashboardHubSection {
+  padding: 1.1rem 1.2rem !important;
+}
+
+#dashboardIntroHeader {
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.75rem;
+}
+
+#dashboardIntroHeader .section-icon {
+  width: 36px;
+  height: 36px;
+  font-size: 0.95rem;
+}
+
+#dashboardIntroHeader .section-desc {
+  font-size: 0.78rem;
+}
+
+#dashboardIntroActions {
+  margin-bottom: 0.85rem !important;
+}
+
+#dashboardProjectList {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem !important;
 }
 
 .dashboard-project-item:hover,
@@ -1529,23 +1560,24 @@ body:not(.sidebar-collapse) .app-main {
 }
 
 .dashboard-project-actions .btn {
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 8px;
+  font-size: 0.78rem;
 }
 
 .dashboard-project-image {
   position: relative;
-  width: 76px;
-  height: 76px;
+  width: 64px;
+  height: 64px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 76px;
+  flex: 0 0 64px;
   overflow: visible;
   padding: 0;
   border: 0;
@@ -2589,6 +2621,7 @@ body:not(.sidebar-collapse) .app-main {
     width: 100%;
   }
   #dashboardProjectList {
+    grid-template-columns: 1fr;
     gap: 0.55rem !important;
   }
   .dashboard-project-item {
