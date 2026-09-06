@@ -3398,6 +3398,7 @@
     });
     $('dashboardCancelProjectBtn')?.addEventListener('click', () => {
       const wasEditing = state.editingProjectInfo;
+      const wasNewProject = getRouteInfo().onNewProjectPath;
       state.showProjectForm = false;
       state.editingProjectInfo = false;
       if(wasEditing){
@@ -3405,11 +3406,19 @@
         state.currentReportId = null;
         state.selectionStage = 'project';
         setPanelRoute();
+      } else if(wasNewProject){
+        state.currentProjectId = null;
+        state.currentReportId = null;
+        state.reportType = '';
+        state.selectionStage = 'project';
+        setPanelRoute();
+        showAppScreen();
       } else {
         resetProjectForm();
       }
       save();
       renderAll();
+      updateSelectionScreenSections();
     });
     $('dashboardProjectList')?.addEventListener('click', e => {
       const projectCard = e.target.closest('.dashboard-project-item');
