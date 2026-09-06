@@ -2436,9 +2436,11 @@
     const plansList = $('dashboardPlansList');
     const plansCount = $('projectPlansCount');
     const uploadPlanButton = $('dashboardUploadPlanBtn');
+    const projectSearch = $('dashboardProjectSearch');
     const current = getCurrentProject();
     const showProjectDashboard = !!current && !isOnReportWorkspaceRoute() && !state.currentReportId;
     const showProjectChooser = !state.showProjectForm && (!current || isOnReportWorkspaceRoute());
+    document.body.classList.toggle('portfolio-home', showProjectChooser);
     $('dashboardHubSection')?.classList.toggle('dashboard-project-mode', showProjectDashboard);
 
     if(introHeader){
@@ -2474,7 +2476,12 @@
       if(!state.projects.length){
         projectList.innerHTML = '<div class="text-muted small">No hay proyectos creados todavía.</div>';
       } else {
-        projectList.innerHTML = state.projects.map(project => `
+        const searchTerm = (projectSearch?.value || '').trim().toLowerCase();
+        const visibleProjects = state.projects.filter(project => {
+          const searchable = `${project.projectName || ''} ${project.companyName || ''} ${project.projectLocation || ''}`.toLowerCase();
+          return !searchTerm || searchable.includes(searchTerm);
+        });
+        projectList.innerHTML = visibleProjects.map(project => `
           <div class="project-member-item dashboard-project-item" data-open-project="${project.id}" role="button" tabindex="0" aria-label="Entrar al proyecto ${escapeHtml(project.projectName || 'Proyecto sin nombre')}" title="Entrar al proyecto">
             <button type="button" class="dashboard-project-image ${project.projectImage ? 'has-image' : ''}" data-id="${project.id}" aria-label="Cargar foto del proyecto" title="Cargar foto">
               ${project.projectImage ? `<img src="${project.projectImage}" alt="">` : '<i class="bi bi-building" aria-hidden="true"></i>'}
@@ -2491,7 +2498,7 @@
               ${project.canDelete ? `<button type="button" data-id="${project.id}" class="btn btn-sm btn-outline-danger dashboard-project-delete" aria-label="Eliminar proyecto" title="Eliminar proyecto"><i class="bi bi-trash3" aria-hidden="true"></i></button>` : ''}
             </div>
           </div>
-        `).join('');
+        `).join('') || '<div class="dashboard-projects-empty">No se encontraron proyectos.</div>';
       }
     }
 
@@ -3467,6 +3474,7 @@
         renderAll();
       }
     });
+    $('dashboardProjectSearch')?.addEventListener('input', () => renderDashboardHub());
     $('dashboardBackToProjectsBtn')?.addEventListener('click', () => {
       state.selectionStage = 'project';
       state.showProjectForm = false;
