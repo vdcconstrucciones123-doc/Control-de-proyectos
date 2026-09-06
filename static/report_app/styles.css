@@ -2872,6 +2872,16 @@ body:not(.sidebar-collapse) .app-main {
   }
   .project-detail-mode #dashboardReportHub { width: 100%; }
   .project-detail-mode #dashboardReportList { width: 100%; }
+  .project-detail-mode #dashboardCurrentProjectName { font-size: 1.45rem !important; line-height: 1.2; }
+  .project-detail-mode .project-summary-label { font-size: 0.86rem; }
+  .project-detail-mode .project-dashboard-tabs { gap: 0.45rem; margin-bottom: 0.9rem; }
+  .project-detail-mode .project-dashboard-tab { padding: 0.7rem 1rem; font-size: 0.95rem; }
+  .project-detail-mode .project-report-tabs { gap: 0.7rem; }
+  .project-detail-mode .project-share-toggle { padding: 0.8rem 1rem; font-size: 0.9rem; }
+  .project-detail-mode .dashboard-reports-heading { margin-bottom: 0.7rem !important; }
+  .project-detail-mode .dashboard-report-item { padding: 1rem 1.1rem; border-radius: 10px; }
+  .project-detail-mode .dashboard-report-item .btn-link { font-size: 1rem; font-weight: 800; }
+  .project-detail-mode .dashboard-report-item .btn { width: 36px; height: 36px; }
 }
 
 @media (min-width: 769px) {
