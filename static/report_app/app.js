@@ -1961,7 +1961,7 @@
     $('reportWorkspaceSection')?.classList.toggle('preview-only', !!state.showPreviewMode);
     profileSection?.classList.toggle('d-none', !showProfile);
     $('dashboardHubSection')?.classList.toggle('d-none', showProfile || (isOnReportWorkspaceRoute() && !routeInfo.onPanelPath));
-    $('reportWorkspaceSection')?.classList.toggle('d-none', showProfile || (!isOnReportWorkspaceRoute() && !routeInfo.onPanelPath));
+    $('reportWorkspaceSection')?.classList.toggle('d-none', showProfile || !isOnReportWorkspaceRoute());
     renderSidebarContext();
     renderProjectSelect();
     renderProjectPanel();
