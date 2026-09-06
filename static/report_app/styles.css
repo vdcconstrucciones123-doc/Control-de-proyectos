@@ -2853,6 +2853,28 @@ body:not(.sidebar-collapse) .app-main {
 .project-detail-mode #dashboardHubSection { max-width: 1280px; margin: 1rem auto !important; }
 
 @media (min-width: 769px) {
+  .project-detail-mode .app-main-container {
+    max-width: none;
+    margin: 0;
+    padding: 1.5rem 2rem;
+    border: 0;
+    border-radius: 0;
+    background: #fff;
+    box-shadow: none;
+  }
+  .project-detail-mode #dashboardHubSection {
+    width: 100%;
+    max-width: none;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  .project-detail-mode #dashboardReportHub { width: 100%; }
+  .project-detail-mode #dashboardReportList { width: 100%; }
+}
+
+@media (min-width: 769px) {
   .portfolio-home .app-sidebar { width: 260px; padding: 1.25rem; }
   .portfolio-home .app-main { margin-left: 260px !important; }
   .portfolio-home .app-sidebar-brand { gap: 0.8rem; }
