@@ -2482,7 +2482,8 @@
             </button>
             <div class="dashboard-project-copy">
               <div class="project-member-name">${escapeHtml(project.projectName || 'Proyecto sin nombre')}</div>
-              <div class="project-member-meta">${escapeHtml(project.companyName || 'Sin empresa')} · ${escapeHtml(project.projectLocation || 'Sin ubicación')}</div>
+              <div class="dashboard-project-meta-row"><span>Empresa</span><strong>${escapeHtml(project.companyName || 'Sin empresa')}</strong></div>
+              <div class="dashboard-project-meta-row"><span>Dirección</span><strong>${escapeHtml(project.projectLocation || 'Sin ubicación')}</strong></div>
             </div>
             <span class="dashboard-project-status ${project.reports?.length ? 'is-active' : ''}">${project.reports?.length ? 'ACTIVO' : 'PLANNING'}</span>
             <div class="dashboard-project-actions d-flex gap-2 flex-wrap">

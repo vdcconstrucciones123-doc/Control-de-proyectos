@@ -2742,11 +2742,53 @@ body:not(.sidebar-collapse) .app-main {
 
 .dashboard-project-status.is-active { background: #116b4b; }
 
+.app-nav-link.active,
+.app-nav-link:hover,
+.app-nav-link:focus {
+  background: #137a52;
+  border-color: #238f65;
+}
+
+#dashboardNewProjectBtn {
+  background: #137a52;
+  border-color: #137a52;
+  box-shadow: 0 8px 18px rgba(19, 122, 82, 0.2);
+}
+
+#dashboardNewProjectBtn:hover,
+#dashboardNewProjectBtn:focus {
+  background: #0d6543;
+  border-color: #0d6543;
+}
+
 .dashboard-project-image {
   width: 104px;
   height: 64px;
   flex-basis: 104px;
   border-radius: 10px;
+}
+
+.dashboard-project-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.dashboard-project-meta-row span {
+  min-width: 4.1rem;
+  color: #7a8795;
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dashboard-project-meta-row strong {
+  color: var(--text-secondary);
+  font-weight: 600;
 }
 
 .dashboard-project-actions .btn { width: 34px; height: 34px; }
