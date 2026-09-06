@@ -4,15 +4,15 @@
   --font-sans: "Manrope", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-display: "Space Grotesk", var(--font-sans);
 
-  --brand-950: #0b1324;
-  --brand-900: #10203f;
-  --brand-800: #17315f;
-  --brand-700: #1d4f91;
-  --primary: #1f6feb;
-  --primary-dark: #1b5fd0;
-  --primary-darker: #164da8;
-  --primary-light: #edf5ff;
-  --primary-soft: #dbeafe;
+  --brand-950: #06251b;
+  --brand-900: #083b2b;
+  --brand-800: #0b533b;
+  --brand-700: #137a52;
+  --primary: #137a52;
+  --primary-dark: #0f6845;
+  --primary-darker: #0a5237;
+  --primary-light: #edf8f2;
+  --primary-soft: #d7f0e2;
   --accent: #0f9d8f;
   --accent-soft: #d9f6f1;
 
@@ -36,13 +36,13 @@
 
   --shadow-card: 0 18px 42px rgba(15, 23, 42, 0.07);
   --shadow-hero: 0 28px 72px rgba(15, 23, 42, 0.12);
-  --shadow-hover: 0 18px 38px rgba(31, 111, 235, 0.14);
-  --focus-ring: 0 0 0 0.24rem rgba(31, 111, 235, 0.18);
+  --shadow-hover: 0 18px 38px rgba(19, 122, 82, 0.16);
+  --focus-ring: 0 0 0 0.24rem rgba(19, 122, 82, 0.2);
 
   --gradient-brand: linear-gradient(145deg, var(--brand-950) 0%, var(--brand-900) 42%, var(--brand-700) 100%);
   --gradient-primary: linear-gradient(180deg, var(--primary) 0%, var(--primary-dark) 100%);
   --gradient-primary-hover: linear-gradient(180deg, var(--primary-dark) 0%, var(--primary-darker) 100%);
-  --gradient-page: radial-gradient(circle at top left, rgba(31, 111, 235, 0.18), transparent 28%),
+  --gradient-page: radial-gradient(circle at top left, rgba(19, 122, 82, 0.14), transparent 28%),
     radial-gradient(circle at top right, rgba(15, 157, 143, 0.10), transparent 24%),
     linear-gradient(180deg, #f3f8ff 0%, var(--surface-soft) 44%, var(--surface-muted) 100%);
 
@@ -50,7 +50,7 @@
   --bs-body-color: var(--text);
   --bs-body-bg: transparent;
   --bs-primary: var(--primary);
-  --bs-primary-rgb: 31, 111, 235;
+  --bs-primary-rgb: 19, 122, 82;
   --bs-secondary-color: var(--text-secondary);
   --bs-border-color: var(--border);
   --bs-border-radius: var(--radius-sm);
@@ -64,6 +64,6 @@ body[data-app-theme="site-audit"] {
 }
 
 body[data-app-theme="site-audit"] ::selection {
-  background: rgba(31, 111, 235, 0.2);
+  background: rgba(19, 122, 82, 0.2);
   color: var(--text);
 }
