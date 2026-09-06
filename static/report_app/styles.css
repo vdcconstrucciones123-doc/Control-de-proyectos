@@ -2814,6 +2814,7 @@ body:not(.sidebar-collapse) .app-main {
 .portfolio-home .app-sidebar-group + .app-sidebar-group { margin-top: 0.9rem; }
 .portfolio-home .app-nav-link { flex-direction: column; justify-content: center; gap: 0.2rem; padding: 0.55rem 0.2rem; border-radius: 6px; }
 .portfolio-home .app-nav-link p { display: block !important; visibility: visible !important; width: 100%; margin: 0 !important; color: #fff !important; font-size: 0.5rem !important; line-height: 1.1; text-align: center; }
+.portfolio-home .portfolio-nav-label { display: block !important; width: 100%; color: #fff !important; font-size: 0.5rem; line-height: 1.1; text-align: center; }
 .portfolio-home .app-nav-link .nav-icon { margin: 0; font-size: 1rem; }
 .portfolio-home .app-nav-link.active,
 .portfolio-home .app-nav-link:hover,
