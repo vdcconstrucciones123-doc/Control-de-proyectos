@@ -2443,6 +2443,7 @@
     const showProjectDashboard = !!current && !routeInfo.onPanelPath && !isOnReportWorkspaceRoute() && !state.currentReportId;
     const showProjectChooser = routeInfo.onPanelPath || (!state.showProjectForm && (!current || isOnReportWorkspaceRoute()));
     document.body.classList.toggle('portfolio-home', showProjectChooser);
+    document.body.classList.toggle('new-project-mode', routeInfo.onNewProjectPath || window.INIT_NEW_PROJECT);
     $('dashboardHubSection')?.classList.toggle('dashboard-project-mode', showProjectDashboard);
 
     if(introHeader){
