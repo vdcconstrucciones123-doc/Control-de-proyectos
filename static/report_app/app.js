@@ -3342,8 +3342,11 @@
       state.currentProjectId = null;
       pendingProjectPhotoFile = null;
       resetProjectForm();
+      setNewProjectRoute();
+      showSelectionScreen();
       renderAll();
-      $('dashboardProjectName')?.focus();
+      updateSelectionScreenSections();
+      $('projectName')?.focus();
     });
     $('dashboardProjectForm')?.addEventListener('submit', async event => {
       event.preventDefault();
