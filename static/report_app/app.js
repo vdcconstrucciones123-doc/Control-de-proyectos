@@ -39,7 +39,6 @@
   let planMarkerMode = false;
   let planPanX = 0;
   let planPanY = 0;
-  const planRenderQuality = 5;
   const planMaxZoom = 10;
   const planPdfCache = new Map();
   let planRenderToken = 0;
@@ -111,6 +110,12 @@
     }
     return viewport;
   }
+  function getPlanRenderSettings(){
+    const isMobile = window.matchMedia?.('(max-width: 767px)').matches || window.innerWidth < 768;
+    return isMobile
+      ? { quality: 1.1, devicePixelRatio: 1, maxDimension: 1800, maxArea: 4000000 }
+      : { quality: 2, devicePixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), maxDimension: 3000, maxArea: 9000000 };
+  }
   let lastPlanRenderSignature = null;
   let planViewerInFlightSignature = null;
   let planViewerInFlightPromise = null;
@@ -167,13 +172,19 @@
         const width = Math.max(320, Math.min(1100, $('planCanvasWrap').clientWidth || 700));
         const baseScale = width / baseViewport.width;
         const baseHeight = baseViewport.height * baseScale;
-        const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        const renderSettings = getPlanRenderSettings();
         const svgContainer = $('planSvg');
         if(svgContainer) svgContainer.replaceChildren();
         const tileLayer = $('planTiles');
         if(tileLayer) tileLayer.replaceChildren();
-        const rasterViewport = getClampedViewport(page, baseScale * planRenderQuality * devicePixelRatio);
+        const rasterViewport = getClampedViewport(
+          page,
+          baseScale * renderSettings.quality * renderSettings.devicePixelRatio,
+          renderSettings.maxDimension,
+          renderSettings.maxArea
+        );
         const context = canvas.getContext('2d');
+        context.clearRect(0, 0, canvas.width, canvas.height);
         canvas.width = rasterViewport.width;
         canvas.height = rasterViewport.height;
         canvas.style.width = `${width}px`;
@@ -267,8 +278,13 @@
       const base = page.getViewport({ scale: 1 });
       const width = Math.min(900, Math.max(320, $('issuePlanPickerCanvas').parentElement.clientWidth - 4));
       const scale = width / base.width;
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
-      const viewport = getClampedViewport(page, scale * ratio);
+      const renderSettings = getPlanRenderSettings();
+      const viewport = getClampedViewport(
+        page,
+        scale * renderSettings.devicePixelRatio,
+        renderSettings.maxDimension,
+        renderSettings.maxArea
+      );
       canvas.width = Math.ceil(viewport.width);
       canvas.height = Math.ceil(viewport.height);
       canvas.style.width = `${width}px`;
