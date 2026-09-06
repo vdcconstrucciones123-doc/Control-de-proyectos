@@ -2451,6 +2451,14 @@
       dashboardNewProjectBtn.classList.toggle('d-none', !!current);
     }
 
+    const totalProjects = state.projects.length;
+    const activeProjects = state.projects.filter(project => (project.reports || []).length > 0).length;
+    const planningProjects = totalProjects - activeProjects;
+    $('dashboardTotalProjects') && ($('dashboardTotalProjects').textContent = totalProjects);
+    $('dashboardActiveProjects') && ($('dashboardActiveProjects').textContent = activeProjects);
+    $('dashboardPlanningProjects') && ($('dashboardPlanningProjects').textContent = planningProjects);
+    $('dashboardCompleteProjects') && ($('dashboardCompleteProjects').textContent = 0);
+
     if(projectFormCard){
       projectFormCard.classList.toggle('d-none', !state.showProjectForm);
     }
@@ -2476,6 +2484,7 @@
               <div class="project-member-name">${escapeHtml(project.projectName || 'Proyecto sin nombre')}</div>
               <div class="project-member-meta">${escapeHtml(project.companyName || 'Sin empresa')} · ${escapeHtml(project.projectLocation || 'Sin ubicación')}</div>
             </div>
+            <span class="dashboard-project-status ${project.reports?.length ? 'is-active' : ''}">${project.reports?.length ? 'ACTIVO' : 'PLANNING'}</span>
             <div class="dashboard-project-actions d-flex gap-2 flex-wrap">
               ${project.canEdit ? `<button type="button" data-id="${project.id}" class="btn btn-sm btn-outline-secondary dashboard-project-edit" aria-label="Editar proyecto" title="Editar proyecto"><i class="bi bi-pencil-square" aria-hidden="true"></i></button>` : ''}
               ${project.canDelete ? `<button type="button" data-id="${project.id}" class="btn btn-sm btn-outline-danger dashboard-project-delete" aria-label="Eliminar proyecto" title="Eliminar proyecto"><i class="bi bi-trash3" aria-hidden="true"></i></button>` : ''}

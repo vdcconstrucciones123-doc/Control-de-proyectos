@@ -155,9 +155,15 @@
       <div id="dashboardIntroHeader" class="section-card-header">
         <span class="section-icon"><i class="bi bi-kanban"></i></span>
         <div>
-          <h2 class="section-title mb-0">Proyectos</h2>
-          <p class="section-desc mb-0">Desde aquí crea proyectos nuevos o entra a uno existente.</p>
+          <h2 class="section-title mb-0 dashboard-portfolio-title">PORTAFOLIO DE PROYECTOS</h2>
+          <p class="section-desc mb-0">Administra tus obras y entra rápidamente a cada proyecto.</p>
         </div>
+      </div>
+      <div id="dashboardPortfolioStats" class="dashboard-portfolio-stats" aria-label="Resumen de proyectos">
+        <span><i class="bi bi-grid-3x3-gap"></i> Total proyectos: <strong id="dashboardTotalProjects">0</strong></span>
+        <span><i class="bi bi-circle-fill dashboard-stat-active"></i> Activos: <strong id="dashboardActiveProjects">0</strong></span>
+        <span><i class="bi bi-calendar3"></i> En planificación: <strong id="dashboardPlanningProjects">0</strong></span>
+        <span><i class="bi bi-check-circle"></i> Completos: <strong id="dashboardCompleteProjects">0</strong></span>
       </div>
       <div id="dashboardIntroActions" class="d-flex justify-content-end mb-3">
         <button id="dashboardNewProjectBtn" type="button" class="btn btn-primary btn-sm"><i class="bi bi-plus-circle me-1"></i>Nuevo proyecto</button>

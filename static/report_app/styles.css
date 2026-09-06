@@ -2682,6 +2682,83 @@ body:not(.sidebar-collapse) .app-main {
   #metadataForm .mb-2, #entrySection .mb-2, #equipmentSection .mb-2 { margin-bottom: 0.6rem; }
 }
 
+/* Portfolio dashboard refinement */
+#dashboardProjectList {
+  display: grid !important;
+  grid-template-columns: 1fr;
+  gap: 0.7rem !important;
+}
+
+.dashboard-portfolio-title {
+  font-size: 1.45rem;
+  letter-spacing: 0.015em;
+}
+
+.dashboard-portfolio-stats {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0 0 0.9rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fbfcfe;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.dashboard-portfolio-stats span + span {
+  padding-left: 1rem;
+  border-left: 1px solid var(--border);
+}
+
+.dashboard-portfolio-stats i { margin-right: 0.3rem; color: var(--text-muted); }
+.dashboard-portfolio-stats .dashboard-stat-active { color: #16865d; font-size: 0.55rem; vertical-align: middle; }
+.dashboard-portfolio-stats strong { color: var(--text); }
+
+.dashboard-project-item {
+  min-height: 94px;
+  padding: 0.65rem 0.75rem;
+}
+
+.dashboard-project-item .project-member-name {
+  color: #166b4b;
+  font-size: 1.02rem;
+  font-weight: 800;
+}
+
+.dashboard-project-status {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background: #7a7d83;
+  color: #fff;
+  font-size: 0.64rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.dashboard-project-status.is-active { background: #116b4b; }
+
+.dashboard-project-image {
+  width: 104px;
+  height: 64px;
+  flex-basis: 104px;
+  border-radius: 10px;
+}
+
+.dashboard-project-actions .btn { width: 34px; height: 34px; }
+
+@media (max-width: 768px) {
+  .dashboard-portfolio-title { font-size: 1.1rem; }
+  .dashboard-portfolio-stats { gap: 0.55rem; overflow-x: auto; font-size: 0.68rem; }
+  .dashboard-portfolio-stats span + span { padding-left: 0.55rem; }
+  .dashboard-project-image { width: 72px; height: 54px; flex-basis: 72px; }
+  .dashboard-project-status { grid-column: 2; justify-self: start; margin-left: 0; }
+}
+
 /* Equipos: lista y PDF preview */
 .equipment-list-thumb {
   width: 56px;
