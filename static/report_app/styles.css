@@ -2806,13 +2806,18 @@ body:not(.sidebar-collapse) .app-main {
 .portfolio-home .app-sidebar-brand { display: block; margin-bottom: 1.8rem; text-align: center; }
 .portfolio-home .app-sidebar-brand .brand-mark { width: 32px; height: 32px; margin: 0 auto 0.35rem; border-radius: 8px; font-size: 0.72rem; }
 .portfolio-home .app-sidebar-title { font-size: 0.68rem; line-height: 1.1; }
-.portfolio-home .app-sidebar-subtitle, .portfolio-home .app-user-copy, .portfolio-home .app-sidebar-label { display: none; }
+.portfolio-home .app-sidebar-subtitle { display: block; font-size: 0.48rem; line-height: 1.1; }
+.portfolio-home .app-user-copy { display: none; }
+.portfolio-home .app-sidebar-label { display: block; margin: 0 0 0.35rem; font-size: 0.45rem; letter-spacing: 0.08em; }
 .portfolio-home #appUserProfileBtn { display: flex; justify-content: center; margin-bottom: 1.5rem; }
 .portfolio-home .app-user-avatar { width: 30px; height: 30px; border-radius: 50%; font-size: 0.7rem; }
 .portfolio-home .app-sidebar-group + .app-sidebar-group { margin-top: 0.9rem; }
 .portfolio-home .app-nav-link { justify-content: center; padding: 0.7rem 0.3rem; border-radius: 6px; }
-.portfolio-home .app-nav-link p { display: none; }
+.portfolio-home .app-nav-link p { display: block; margin: 0; font-size: 0.5rem; line-height: 1.1; }
 .portfolio-home .app-nav-link .nav-icon { margin: 0; font-size: 1rem; }
+.portfolio-home .app-nav-link.active,
+.portfolio-home .app-nav-link:hover,
+.portfolio-home .app-nav-link:focus { background: #137a52 !important; border-color: #238f65 !important; }
 .portfolio-home .sidebar-logout-form { margin-top: 0.5rem; }
 .portfolio-home .app-sidebar-logout-btn { padding: 0.55rem 0.25rem; font-size: 0; }
 .portfolio-home .app-sidebar-logout-btn i { margin: 0 !important; font-size: 0.9rem; }
