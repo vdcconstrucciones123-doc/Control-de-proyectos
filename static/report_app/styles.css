@@ -2667,6 +2667,10 @@ body:not(.sidebar-collapse) .app-main {
 .incident-table-actions > .btn:hover, .incident-table-actions > .btn:focus-visible { background: var(--surface-muted); color: var(--primary-dark); box-shadow: none; }
 .incident-action-menu { position: absolute; top: calc(100% + 0.25rem); right: 0; z-index: 40; display: none; min-width: 116px; padding: 0.25rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); box-shadow: 0 8px 18px rgba(15, 23, 42, 0.14); }
 .incident-action-menu.is-open { display: grid; gap: 0.1rem; }
+.incident-table tr:has(.incident-action-menu.is-open) {
+  position: relative;
+  z-index: 50;
+}
 .incident-action-item { display: flex; align-items: center; width: 100%; padding: 0.35rem 0.45rem; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font-size: 0.72rem; text-align: left; white-space: nowrap; }
 .incident-action-item:hover, .incident-action-item:focus-visible { background: var(--surface-muted); color: var(--primary-dark); outline: none; }
 .incident-action-item.is-danger { color: #b91c1c; }
@@ -4178,8 +4182,13 @@ body:not(.sidebar-collapse) .app-main {
   .incident-table-wrap {
     width: 100%;
     max-width: 100%;
-    overflow: hidden;
+    position: relative;
+    overflow: visible;
     border-radius: 6px;
+  }
+
+  .incident-table .incident-action-menu {
+    z-index: 60;
   }
 
   .incident-table {

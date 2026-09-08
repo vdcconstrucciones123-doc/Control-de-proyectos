@@ -4105,16 +4105,17 @@
       if(editButton){
         const reportId = Number(editButton.dataset.reportEdit);
         const project = getCurrentProject();
-        const report = project?.reports?.find(item => item.id === reportId);
+        const report = project?.reports?.find(item => Number(item.id) === reportId);
         if(!project || !report) return;
         if(!ensureCanEditReport('No tienes permisos para editar este reporte.')) return;
         project.currentReportId = reportId;
         state.currentReportId = reportId;
         state.existingReportOpen = true;
         state.reportMetaComplete = true;
+        loadProject(project);
         state.editingReportMeta = true;
         state.workspaceView = 'summary';
-        loadProject(project);
+        state.showPreviewMode = false;
         save();
         setReportRoute(project, reportId);
         renderAll();
