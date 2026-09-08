@@ -427,7 +427,7 @@
     if(existing){
       const currentReportId = existing.currentReportId || state.currentReportId || null;
       Object.assign(existing, serverProject);
-      existing.currentReportId = currentReportId && existing.reports?.some(report => report.id === currentReportId)
+      existing.currentReportId = currentReportId && existing.reports?.some(report => Number(report.id) === Number(currentReportId))
         ? currentReportId
         : existing.reports?.[0]?.id || null;
       return existing;
@@ -438,7 +438,7 @@
   }
   function mergeServerReport(project, serverReport){
     project.reports = project.reports || [];
-    const index = project.reports.findIndex(report => report.id === serverReport.id);
+    const index = project.reports.findIndex(report => Number(report.id) === Number(serverReport.id));
     if(index >= 0){
       project.reports[index] = { ...project.reports[index], ...serverReport };
     } else {
@@ -490,8 +490,14 @@
       const data = await requestJson('/api/projects/', { method: 'GET' });
       const remoteProjects = Array.isArray(data.projects) ? data.projects : [];
       state.projects = remoteProjects.map(project => ({ ...project, currentReportId: project.currentReportId || project.reports?.[0]?.id || null }));
+      const routeInfo = getRouteInfo();
       const activeProject = getCurrentProject();
       if(activeProject){
+        if((routeInfo.onReportPath || routeInfo.onFrontPath) && routeInfo.reportId
+          && activeProject.reports?.some(report => Number(report.id) === Number(routeInfo.reportId))){
+          activeProject.currentReportId = Number(routeInfo.reportId);
+          state.currentReportId = Number(routeInfo.reportId);
+        }
         loadProject(activeProject);
       }
       renderAll();
@@ -599,7 +605,7 @@
 
   function getProjectById(id){ return state.projects.find(p => p.id === id); }
   function getCurrentProject(){ return getProjectById(state.currentProjectId); }
-  function getCurrentReport(){ const project = getCurrentProject(); return project?.reports?.find(r => r.id === state.currentReportId) || null; }
+  function getCurrentReport(){ const project = getCurrentProject(); return project?.reports?.find(r => Number(r.id) === Number(state.currentReportId)) || null; }
 
   function syncCurrentReport(){
     const report = getCurrentReport();
@@ -674,7 +680,7 @@
     state.projectName = project.projectName || '';
     state.projectLocation = project.projectLocation || '';
     state.currentReportId = project.currentReportId || null;
-    const report = project.reports?.find(r => r.id === state.currentReportId) || null;
+    const report = project.reports?.find(r => Number(r.id) === Number(state.currentReportId)) || null;
     if(report){
       state.reportType = report.type || '';
       state.reportTitle = report.title || 'REPORTE FOTOGRÁFICO DE OBRA';
@@ -1394,7 +1400,7 @@
         return;
       }
       if(routeInfo.onReportPath || routeInfo.onFrontPath){
-        const report = project?.reports?.find(item => item.id === routeInfo.reportId);
+        const report = project?.reports?.find(item => Number(item.id) === Number(routeInfo.reportId));
         if(report){
           project.currentReportId = routeInfo.reportId;
           state.currentReportId = routeInfo.reportId;
@@ -2349,18 +2355,18 @@
 
   function renderFrontDetail(){
     const selectedFront = state.fronts.find(f => f.id === state.currentFrontId);
-    const globalIncidentList = state.reportType === 'incidencia';
+    const globalIssueList = ['incidencia', 'avances'].includes(state.reportType);
     const selectedName = $('selectedFrontName');
     const list = $('frontIssueList');
     const detailPanel = $('issueDetailPanel');
-    if(selectedName){ selectedName.textContent = globalIncidentList ? 'Todos los frentes' : (selectedFront ? frontLabel(selectedFront) : ''); }
+    if(selectedName){ selectedName.textContent = globalIssueList ? 'Todos los frentes' : (selectedFront ? frontLabel(selectedFront) : ''); }
     if(!list) return;
-    if(!selectedFront && !globalIncidentList){
+    if(!selectedFront && !globalIssueList){
       list.innerHTML = '<p class="text-muted small mb-0">Selecciona un frente para ver sus issues.</p>';
       if(detailPanel){ detailPanel.classList.add('d-none'); detailPanel.innerHTML = ''; }
       return;
     }
-    const entries = globalIncidentList ? [...state.entries] : state.entries.filter(e => e.frontId === selectedFront.id);
+    const entries = globalIssueList ? [...state.entries] : state.entries.filter(e => e.frontId === selectedFront.id);
     if(!entries.length){
       list.innerHTML = '<p class="text-muted small mb-0">No hay issues creados en este frente.</p>';
       if(detailPanel){ detailPanel.classList.add('d-none'); detailPanel.innerHTML = ''; }
@@ -2460,8 +2466,17 @@
     } else {
       list.innerHTML = entries.map((entry, index) => {
         const locationLabel = (entry.buildingLocation || (entry.planId && entry.planX != null && entry.planY != null)) ? getIssueLocationLabel(entry, index) : '';
-        return `<div class="issue-item card mb-2 p-3"><div class="d-flex justify-content-between align-items-start flex-wrap gap-2"><div><strong>${escapeHtml(entry.desc || 'Issue sin descripción')}</strong><div class="small text-muted">${escapeHtml(entry.status)} · ${escapeHtml(selectedFront.name)}${locationLabel ? ` · ${escapeHtml(locationLabel)}` : ''}</div></div><div class="d-flex gap-2"><button data-id="${entry.id}" class="btn btn-sm btn-outline-secondary view-entry-detail">Ver detalle</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-entry">Editar</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-entry">Eliminar</button></div></div></div>`;
+        const entryFront = state.fronts.find(front => Number(front.id) === Number(entry.frontId));
+        const entryFrontName = entryFront ? entryFront.name : 'Frente eliminado';
+        return `<div class="issue-item card mb-2 p-3"><div class="d-flex justify-content-between align-items-start flex-wrap gap-2"><div class="issue-item-copy"><strong>${escapeHtml(entry.desc || 'Issue sin descripción')}</strong><div class="small text-muted">${escapeHtml(entry.status)} · ${escapeHtml(entryFrontName)}${locationLabel ? ` · ${escapeHtml(locationLabel)}` : ''}</div></div><div class="issue-item-actions"><button type="button" class="btn btn-sm btn-outline-secondary incident-menu-toggle" title="Más acciones" aria-label="Más acciones" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button><div class="incident-action-menu"><button data-id="${entry.id}" class="incident-action-item view-entry-detail" role="menuitem"><i class="bi bi-eye me-2"></i>Ver detalle</button><button data-id="${entry.id}" class="incident-action-item edit-entry" role="menuitem"><i class="bi bi-pencil me-2"></i>Editar</button><button data-id="${entry.id}" class="incident-action-item is-danger delete-entry" role="menuitem"><i class="bi bi-trash3 me-2"></i>Eliminar</button></div></div></div></div>`;
       }).join('');
+      list.querySelectorAll('.incident-menu-toggle').forEach(button => button.addEventListener('click', event => {
+        event.stopPropagation();
+        const menu = button.parentElement.querySelector('.incident-action-menu');
+        list.querySelectorAll('.incident-action-menu.is-open').forEach(item => { if(item !== menu) item.classList.remove('is-open'); });
+        menu.classList.toggle('is-open');
+        button.setAttribute('aria-expanded', String(menu.classList.contains('is-open')));
+      }));
     }
     if(state.reportType !== 'incidencia') list.querySelectorAll('.edit-entry').forEach(btn => btn.addEventListener('click', () => {
       const entry = getEntryById(Number(btn.dataset.id));
@@ -2498,7 +2513,7 @@
     }));
     if(detailPanel){
       const selectedEntry = getEntryById(state.selectedEntryId);
-      if(!selectedEntry || (!globalIncidentList && selectedEntry.frontId !== selectedFront.id)){
+      if(!selectedEntry || (!globalIssueList && selectedEntry.frontId !== selectedFront.id)){
         detailPanel.classList.add('d-none');
         detailPanel.innerHTML = '';
         state.selectedEntryId = null;
@@ -3881,12 +3896,17 @@
     planCanvasWrap?.addEventListener('pointermove', e => {
       if(e.pointerType === 'touch' && touchPoints.has(e.pointerId)){
         e.preventDefault();
+        const previousPoint = touchPoints.get(e.pointerId);
         touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
         const pinch = getPinchState();
         if(pinch && lastPinchDistance){
           const zoomRatio = pinch.distance / lastPinchDistance;
           setPlanZoom(planZoom * zoomRatio, pinch.centerX, pinch.centerY);
           lastPinchDistance = pinch.distance;
+        } else if(touchPoints.size === 1 && previousPoint){
+          planPanX += e.clientX - previousPoint.x;
+          planPanY += e.clientY - previousPoint.y;
+          applyPlanTransform();
         }
         return;
       }
@@ -3928,11 +3948,23 @@
         $('dashboardPlanInput').value = '';
       }
     });
+        if(e.pointerType === 'touch'){
+          touchPoints.delete(e.pointerId);
+          if(touchPoints.size < 2) lastPinchDistance = 0;
+          if(planCanvasWrap.hasPointerCapture(e.pointerId)) planCanvasWrap.releasePointerCapture(e.pointerId);
+          return;
+        }
     $('dashboardPlansList')?.addEventListener('click', e => {
       const planButton = e.target.closest('[data-plan-id]');
       if(planButton){
         selectedPlanId = Number(planButton.dataset.planId);
         planZoom = 1;
+      planCanvasWrap?.addEventListener('pointercancel', e => {
+        if(e.pointerType !== 'touch') return;
+        touchPoints.delete(e.pointerId);
+        if(touchPoints.size < 2) lastPinchDistance = 0;
+        if(planCanvasWrap.hasPointerCapture(e.pointerId)) planCanvasWrap.releasePointerCapture(e.pointerId);
+      });
         planPanX = 0;
         planPanY = 0;
         planMarkerMode = false;
