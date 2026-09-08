@@ -1,17 +1,5 @@
 {% extends 'base.html' %}
 {% load django_bootstrap5 %}
-      <button id="appUserProfileBtn" type="button" class="app-user-panel user-panel" aria-label="Abrir mi perfil" title="Mi perfil">
-        <div class="app-user-avatar" aria-hidden="true">
-          <span class="app-user-avatar-initial{% if request.user.profile.profile_image %} d-none{% endif %}">{{ request.user.username|default:'U'|first|upper }}</span>
-          {% if request.user.profile.profile_image %}<img class="app-user-avatar-image" src="{{ request.user.profile.profile_image.url }}" alt="Foto de perfil">{% else %}<img class="app-user-avatar-image d-none" alt="">{% endif %}
-        </div>
-        <div class="app-user-copy">
-          <div class="app-user-name">
-            {% if request.user.first_name %}{{ request.user.first_name }} {{ request.user.last_name }}{% else %}{{ request.user.username }}{% endif %}
-          </div>
-          <div class="app-user-meta">@{{ request.user.username }}</div>
-        </div>
-      </button>
 {% block title %}Site Audit Pro Lite{% endblock %}
 {% block body_class %}hold-transition sidebar-mini layout-fixed layout-navbar-fixed{% endblock %}
 
@@ -23,6 +11,14 @@
           <a class="nav-link" data-widget="pushmenu" href="#" role="button"><i class="fas fa-bars"></i></a>
         </li>
       </ul>
+      <button id="appUserProfileBtn" type="button" class="app-header-profile user-panel" aria-label="Abrir mi perfil" title="Mi perfil">
+        <div class="app-header-profile-avatar" aria-hidden="true">
+          <span class="app-user-avatar-initial{% if request.user.profile.profile_image %} d-none{% endif %}">{{ request.user.username|default:'U'|first|upper }}</span>
+          {% if request.user.profile.profile_image %}<img class="app-user-avatar-image" src="{{ request.user.profile.profile_image.url }}" alt="Foto de perfil">{% else %}<img class="app-user-avatar-image d-none" alt="">{% endif %}
+        </div>
+        <span class="app-header-profile-name">{% if request.user.first_name %}{{ request.user.first_name }} {{ request.user.last_name }}{% else %}{{ request.user.username }}{% endif %}</span>
+        <i class="bi bi-chevron-down app-header-profile-chevron" aria-hidden="true"></i>
+      </button>
     </nav>
 
     <aside class="main-sidebar sidebar-dark-primary elevation-4 app-sidebar">
@@ -39,22 +35,6 @@
       </a>
 
       <div class="sidebar">
-
-      <button id="appUserProfileBtn" type="button" class="app-user-panel user-panel" aria-label="Abrir mi perfil" title="Mi perfil">
-        <div class="app-user-avatar" aria-hidden="true">
-          {% if request.user.profile.profile_image %}
-          <img class="app-user-avatar-image" src="{{ request.user.profile.profile_image.url }}" alt="Foto de perfil">
-          {% else %}
-          <span class="app-user-avatar-initial">{{ request.user.username|default:'U'|first|upper }}</span>
-          {% endif %}
-        </div>
-        <div class="app-user-copy">
-          <div class="app-user-name">
-            {% if request.user.first_name %}{{ request.user.first_name }} {{ request.user.last_name }}{% else %}{{ request.user.username }}{% endif %}
-          </div>
-          <div class="app-user-meta">@{{ request.user.username }}</div>
-        </div>
-      </button>
 
       <div id="sidebarDashboardGroup" class="app-sidebar-group">
         <nav class="mt-2">
@@ -554,10 +534,11 @@
       <section class="card app-section-card mb-3 p-3 d-none" id="equipmentSection">
         <div class="section-card-header section-card-header-compact mb-3">
           <span class="section-icon"><i class="bi bi-tools"></i></span>
-          <div>
+          <div class="flex-grow-1">
             <h2 class="section-title mb-0">Registrar equipo</h2>
             <p class="section-desc mb-0">Recepción, validación o entrega. Una foto por equipo.</p>
           </div>
+          <button id="equipmentBackToProjectBtn" type="button" class="btn btn-outline-secondary btn-sm incident-header-action" aria-label="Volver al proyecto" title="Volver al proyecto"><i class="bi bi-arrow-left" aria-hidden="true"></i></button>
         </div>
         <div class="mb-2">
           <label class="form-label" for="equipmentName">Tipo / nombre de equipo</label>

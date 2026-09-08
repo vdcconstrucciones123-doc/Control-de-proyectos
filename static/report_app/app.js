@@ -407,7 +407,7 @@
     }
   }
   function updateProfileAvatar(imageUrl){
-    document.querySelectorAll('.app-user-avatar').forEach(avatar => {
+    document.querySelectorAll('.app-user-avatar, .app-header-profile-avatar').forEach(avatar => {
       const image = avatar.querySelector('.app-user-avatar-image');
       const initial = avatar.querySelector('.app-user-avatar-initial');
       if(!image || !initial) return;
@@ -4257,7 +4257,11 @@
       if(window.innerWidth <= 992) setSidebarState(false);
     };
     $('backToProjectBtn')?.addEventListener('click', goBackToProject);
+    $('equipmentBackToProjectBtn')?.addEventListener('click', goBackToProject);
     $('backToProjectBtn')?.addEventListener('pointerup', event => {
+      if(event.pointerType === 'touch') goBackToProject(event);
+    });
+    $('equipmentBackToProjectBtn')?.addEventListener('pointerup', event => {
       if(event.pointerType === 'touch') goBackToProject(event);
     });
     $('deleteCurrentReportBtn')?.addEventListener('click', () => {
