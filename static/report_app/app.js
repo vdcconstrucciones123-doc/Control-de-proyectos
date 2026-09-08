@@ -4237,7 +4237,9 @@
       }
       openReportForm(reportType);
     });
-    $('backToProjectBtn')?.addEventListener('click', () => {
+    const goBackToProject = event => {
+      event?.preventDefault();
+      event?.stopPropagation();
       const current = getCurrentProject();
       if(!current) return;
       state.selectionStage = 'reportType';
@@ -4252,6 +4254,11 @@
       renderAll();
       updateSelectionScreenSections();
       showSelectionScreen();
+      if(window.innerWidth <= 992) setSidebarState(false);
+    };
+    $('backToProjectBtn')?.addEventListener('click', goBackToProject);
+    $('backToProjectBtn')?.addEventListener('pointerup', event => {
+      if(event.pointerType === 'touch') goBackToProject(event);
     });
     $('deleteCurrentReportBtn')?.addEventListener('click', () => {
       if(state.currentReportId){

@@ -1857,6 +1857,20 @@ body:not(.sidebar-collapse) .app-main {
   flex: 0 0 auto;
 }
 
+#reportWorkspaceSection button,
+#reportWorkspaceSection a,
+#reportWorkspaceSection input,
+#reportWorkspaceSection select,
+#reportWorkspaceSection textarea {
+  touch-action: manipulation;
+}
+
+#reportWorkspaceHeader,
+#reportWorkspaceSection .section-card-header {
+  position: relative;
+  z-index: 2;
+}
+
 .report-summary-disclosure summary::-webkit-details-marker {
   display: none;
 }
@@ -3416,6 +3430,16 @@ body:not(.sidebar-collapse) .app-main {
 .dashboard-project-menu-item.is-danger:hover, .dashboard-project-menu-item.is-danger:focus-visible { background: #fef2f2; color: #991b1b; }
 
 @media (max-width: 768px) {
+  #reportWorkspaceSection button,
+  #reportWorkspaceSection a {
+    pointer-events: auto;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #reportWorkspaceSection .btn {
+    cursor: pointer;
+  }
+
   #issueDetailPanel {
     padding: 0.7rem !important;
     border-radius: 4px !important;
