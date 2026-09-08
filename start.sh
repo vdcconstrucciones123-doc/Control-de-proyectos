@@ -5,7 +5,6 @@ export PORT="${PORT:-8000}"
 export PLAYWRIGHT_BROWSERS_PATH="/opt/render/project/.playwright"
 
 echo "Starting app on port ${PORT}"
-python -m playwright install chromium
 python manage.py migrate --noinput
 python manage.py ensure_admin_user
 
