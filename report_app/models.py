@@ -12,12 +12,41 @@ else:
     project_plan_storage = None
 
 
+def _user_folder(user, category):
+    username = slugify(getattr(user, "username", "usuario")) or "usuario"
+    return f"usuarios/{username}/{category}/"
+
+
+def project_image_upload_to(instance, filename):
+    return _user_folder(instance.owner, "proyectos") + filename
+
+
+def project_plan_upload_to(instance, filename):
+    return _user_folder(instance.project.owner, "planos") + filename
+
+
+def report_cover_upload_to(instance, filename):
+    return _user_folder(instance.project.owner, "portadas") + filename
+
+
+def entry_image_upload_to(instance, filename):
+    return _user_folder(instance.entry.report.project.owner, "evidencias") + filename
+
+
+def site_logo_upload_to(instance, filename):
+    return "sitio/logos/" + filename
+
+
+def profile_image_upload_to(instance, filename):
+    return _user_folder(instance.user, "perfil") + filename
+
+
 class ReportProject(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="owned_projects")
     company_name = models.CharField(max_length=200, default="VDC CONSTRUCCIONES SAC")
     project_name = models.CharField(max_length=200, blank=True)
     project_location = models.CharField(max_length=200, blank=True)
-    project_image = models.FileField(upload_to="project_images/", blank=True, null=True)
+    project_image = models.FileField(upload_to=project_image_upload_to, blank=True, null=True)
     slug = models.SlugField(max_length=220, unique=True, blank=True)
     report_title = models.CharField(max_length=200, default="REPORTE FOTOGRÁFICO DE OBRA")
     for_whom = models.CharField(max_length=200, blank=True)
@@ -47,7 +76,7 @@ class ReportProject(models.Model):
 class ProjectPlan(models.Model):
     project = models.ForeignKey(ReportProject, on_delete=models.CASCADE, related_name="plans")
     name = models.CharField(max_length=200, blank=True)
-    file = models.FileField(upload_to="project_plans/", storage=project_plan_storage)
+    file = models.FileField(upload_to=project_plan_upload_to, storage=project_plan_storage)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -116,7 +145,7 @@ class ProjectReport(models.Model):
     recommendation_text = models.TextField(blank=True)
     conclusion_items = models.JSONField(default=list, blank=True)
     recommendation_items = models.JSONField(default=list, blank=True)
-    cover_image = models.FileField(upload_to="report_covers/", blank=True, null=True)
+    cover_image = models.FileField(upload_to=report_cover_upload_to, blank=True, null=True)
     auto_merge_dup = models.BooleanField(default=False)
     combine_by_status = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -180,7 +209,7 @@ class ReportEntry(models.Model):
 
 class EntryImage(models.Model):
     entry = models.ForeignKey(ReportEntry, on_delete=models.CASCADE, related_name="images")
-    image = models.FileField(upload_to="report_entries/")
+    image = models.FileField(upload_to=entry_image_upload_to)
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -189,7 +218,7 @@ class EntryImage(models.Model):
 
 
 class SiteBranding(models.Model):
-    logo_image = models.FileField(upload_to="site_logos/", blank=True, null=True)
+    logo_image = models.FileField(upload_to=site_logo_upload_to, blank=True, null=True)
     site_name = models.CharField(max_length=120, default="Site Audit Pro")
     site_subtitle = models.CharField(max_length=200, default="Control visual de obra")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -205,7 +234,7 @@ class SiteBranding(models.Model):
 
 class UserProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
-    profile_image = models.FileField(upload_to="profile_images/", blank=True, null=True)
+    profile_image = models.FileField(upload_to=profile_image_upload_to, blank=True, null=True)
     is_approved = models.BooleanField(default=False)
     approved_at = models.DateTimeField(null=True, blank=True)
     approved_by = models.ForeignKey(
