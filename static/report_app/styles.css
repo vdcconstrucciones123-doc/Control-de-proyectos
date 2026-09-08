@@ -3145,8 +3145,8 @@ body:not(.sidebar-collapse) .app-main {
     padding: 0.65rem 0.75rem;
   }
   #dashboardHubSection .dashboard-report-item > .d-flex {
-    align-items: stretch !important;
-    flex-wrap: wrap !important;
+    align-items: center !important;
+    flex-wrap: nowrap !important;
   }
   #dashboardHubSection .dashboard-report-item .btn-link {
     font-size: 0.86rem;
@@ -3154,41 +3154,21 @@ body:not(.sidebar-collapse) .app-main {
   }
   #dashboardHubSection .dashboard-report-item .dashboard-report-open {
     min-width: 0;
-    flex: 1 1 100%;
+    flex: 1 1 auto;
     padding-right: 0 !important;
     overflow-wrap: anywhere;
   }
   #dashboardHubSection .dashboard-report-actions {
     display: block;
-    width: 100%;
+    width: auto;
+    flex: 0 0 auto;
   }
   #dashboardHubSection .dashboard-report-menu-toggle {
-    display: none;
+    display: inline-flex;
   }
-  #dashboardHubSection .dashboard-report-menu,
-  #dashboardHubSection .dashboard-report-menu.is-open {
-    position: static;
-    display: flex;
-    width: 100%;
-    min-width: 0;
-    gap: 0.35rem;
-    padding: 0.35rem 0 0;
-    border: 0;
-    border-top: 1px solid var(--border);
-    border-radius: 0;
-    box-shadow: none;
-  }
-  #dashboardHubSection .dashboard-report-menu-item {
-    flex: 1 1 0;
-    justify-content: center;
-    min-height: 36px;
-    padding: 0.45rem 0.3rem;
-    font-size: 0.7rem;
-    text-align: center;
-    white-space: normal;
-  }
-  #dashboardHubSection .dashboard-report-menu-item i {
-    margin-right: 0.25rem !important;
+  #dashboardHubSection .dashboard-report-item:has(.dashboard-report-menu.is-open) {
+    position: relative;
+    z-index: 50;
   }
   #dashboardHubSection .project-summary-card {
     padding: 0.7rem 0.8rem;

@@ -3923,10 +3923,22 @@
       setPlanZoom(nextZoom, e.clientX, e.clientY);
     }, { passive: false });
     planCanvasWrap?.addEventListener('pointerup', e => {
+      if(e.pointerType === 'touch'){
+        touchPoints.delete(e.pointerId);
+        if(touchPoints.size < 2) lastPinchDistance = 0;
+        if(planCanvasWrap.hasPointerCapture(e.pointerId)) planCanvasWrap.releasePointerCapture(e.pointerId);
+        return;
+      }
       if(e.button !== 1) return;
       isPanningPlan = false;
       planCanvasWrap.releasePointerCapture(e.pointerId);
       planCanvasWrap.classList.remove('is-panning');
+    });
+    planCanvasWrap?.addEventListener('pointercancel', e => {
+      if(e.pointerType !== 'touch') return;
+      touchPoints.delete(e.pointerId);
+      if(touchPoints.size < 2) lastPinchDistance = 0;
+      if(planCanvasWrap.hasPointerCapture(e.pointerId)) planCanvasWrap.releasePointerCapture(e.pointerId);
     });
     $('dashboardUploadPlanBtn')?.addEventListener('click', () => {
       const project = getCurrentProject();
@@ -3948,23 +3960,11 @@
         $('dashboardPlanInput').value = '';
       }
     });
-        if(e.pointerType === 'touch'){
-          touchPoints.delete(e.pointerId);
-          if(touchPoints.size < 2) lastPinchDistance = 0;
-          if(planCanvasWrap.hasPointerCapture(e.pointerId)) planCanvasWrap.releasePointerCapture(e.pointerId);
-          return;
-        }
     $('dashboardPlansList')?.addEventListener('click', e => {
       const planButton = e.target.closest('[data-plan-id]');
       if(planButton){
         selectedPlanId = Number(planButton.dataset.planId);
         planZoom = 1;
-      planCanvasWrap?.addEventListener('pointercancel', e => {
-        if(e.pointerType !== 'touch') return;
-        touchPoints.delete(e.pointerId);
-        if(touchPoints.size < 2) lastPinchDistance = 0;
-        if(planCanvasWrap.hasPointerCapture(e.pointerId)) planCanvasWrap.releasePointerCapture(e.pointerId);
-      });
         planPanX = 0;
         planPanY = 0;
         planMarkerMode = false;
