@@ -41,6 +41,24 @@
   let issueFormManuallyOpened = false;
   let selectedPlanId = null;
   let planZoom = 1;
+  let issuePlanPickerZoom = 1;
+  let issuePlanPickerBaseWidth = 0;
+  let issuePlanPickerBaseHeight = 0;
+
+  function applyIssuePlanPickerZoom(){
+    const canvas = $('issuePlanPickerCanvas');
+    if(!canvas || !issuePlanPickerBaseWidth || !issuePlanPickerBaseHeight) return;
+    canvas.style.maxWidth = 'none';
+    canvas.style.width = `${issuePlanPickerBaseWidth * issuePlanPickerZoom}px`;
+    canvas.style.height = `${issuePlanPickerBaseHeight * issuePlanPickerZoom}px`;
+    const marker = $('issuePlanPickerMarker');
+    if(marker && issuePlanPoint){
+      marker.style.left = `${issuePlanPoint.x * issuePlanPickerBaseWidth * issuePlanPickerZoom}px`;
+      marker.style.top = `${issuePlanPoint.y * issuePlanPickerBaseHeight * issuePlanPickerZoom}px`;
+    }
+    const zoomValue = $('issuePlanPickerZoomValue');
+    if(zoomValue) zoomValue.textContent = `${Math.round(issuePlanPickerZoom * 100)}%`;
+  }
   let planMarkerMode = false;
   let planPanX = 0;
   let planPanY = 0;
@@ -298,16 +316,21 @@
       );
       canvas.width = Math.ceil(viewport.width);
       canvas.height = Math.ceil(viewport.height);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${width * (viewport.height / viewport.width)}px`;
+      const displayHeight = width * (viewport.height / viewport.width);
+      issuePlanPickerBaseWidth = width;
+      issuePlanPickerBaseHeight = displayHeight;
+      canvas.style.maxWidth = 'none';
+      canvas.style.width = `${width * issuePlanPickerZoom}px`;
+      canvas.style.height = `${displayHeight * issuePlanPickerZoom}px`;
       await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      applyIssuePlanPickerZoom();
       if(hint) hint.textContent = 'Haz clic sobre el plano para colocar el punto.';
       if(issuePlanPoint?.planId === plan.id){
         const marker = $('issuePlanPickerMarker');
         const pointNumber = (state.entries || []).filter(entry => Number(entry.planId) === Number(plan.id) && entry.id !== state.editingEntryId && entry.planX != null && entry.planY != null).length + 1;
         marker.textContent = pointNumber;
-        marker.style.left = `${issuePlanPoint.x * width}px`;
-        marker.style.top = `${issuePlanPoint.y * (width * (viewport.height / viewport.width))}px`;
+        marker.style.left = `${issuePlanPoint.x * width * issuePlanPickerZoom}px`;
+        marker.style.top = `${issuePlanPoint.y * displayHeight * issuePlanPickerZoom}px`;
         marker.classList.remove('d-none');
       }
     } catch(error) {
@@ -604,6 +627,7 @@
     report.combineByStatus = state.combineByStatus;
     report.editingEntryId = state.editingEntryId;
     report.showIssueForm = state.showIssueForm;
+    report.workspaceView = state.workspaceView;
     report.metaComplete = state.reportMetaComplete;
   }
 
@@ -641,6 +665,7 @@
 
   function loadProject(project){
     if(!project) return;
+    const previousWorkspaceView = state.workspaceView;
     issueFormManuallyOpened = false;
     state.editingProjectInfo = false;
     state.editingReportMeta = false;
@@ -673,11 +698,14 @@
       state.editingEntryId = null;
       state.showIssueForm = false;
       state.showPreviewMode = !!report.showPreviewMode;
+      const savedWorkspaceView = ['summary', 'fronts', 'issues', 'preview', 'equipment'].includes(report.workspaceView)
+        ? report.workspaceView
+        : (['summary', 'fronts', 'issues', 'preview', 'equipment'].includes(previousWorkspaceView) ? previousWorkspaceView : 'summary');
       state.workspaceView = state.showPreviewMode
         ? 'preview'
         : (report.type === 'equipos'
           ? 'equipment'
-          : 'summary');
+          : savedWorkspaceView);
       state.reportMetaComplete = report.metaComplete !== undefined ? !!report.metaComplete : true;
       if(state.existingReportOpen){
         state.reportMetaComplete = true;
@@ -1232,6 +1260,7 @@
       editingEntryId: state.editingEntryId,
       showIssueForm: state.showIssueForm,
       currentFrontId: state.currentFrontId,
+      workspaceView: state.workspaceView,
       existingReportOpen: state.existingReportOpen,
       reportMetaComplete: state.reportMetaComplete,
       showPreviewMode: state.showPreviewMode,
@@ -1264,6 +1293,9 @@
     state.editingEntryId = draft.editingEntryId || null;
     state.showIssueForm = !!draft.showIssueForm;
     state.currentFrontId = draft.currentFrontId || null;
+    state.workspaceView = ['summary', 'fronts', 'issues', 'preview', 'equipment'].includes(draft.workspaceView)
+      ? draft.workspaceView
+      : 'fronts';
     state.existingReportOpen = !!draft.existingReportOpen;
     state.reportMetaComplete = !!draft.reportMetaComplete;
     state.showPreviewMode = !!draft.showPreviewMode;
@@ -1373,6 +1405,7 @@
             const front = state.fronts.find(item => item.id === routeInfo.frontId);
             if(front){
               state.currentFrontId = routeInfo.frontId;
+              state.workspaceView = 'issues';
             } else {
               setReportRoute(project, routeInfo.reportId, { replace: true });
             }
@@ -2001,9 +2034,11 @@
       backToMainPanelBtn.textContent = isEditingProject ? 'Cancelar edición' : 'Volver al panel principal';
     }
     const reportBackActions = $('reportBackActions');
+    const cancelReportCreationBtn = $('cancelReportCreationBtn');
     if(reportBackActions){
       reportBackActions.classList.toggle('d-none', !isOnReportWorkspaceRoute() || !!state.editingReportMeta);
     }
+    cancelReportCreationBtn?.classList.toggle('d-none', !isOnReportWorkspaceRoute() || !!state.currentReportId || !!state.editingReportMeta);
     const deleteCurrentReportBtn = $('deleteCurrentReportBtn');
     const editCurrentReportBtn = $('editCurrentReportBtn');
     const currentReport = getCurrentReport();
@@ -2089,7 +2124,7 @@
         if(entry.status === 'Borrador') summary.draft += 1;
         return summary;
       }, { open: 0, closed: 0, draft: 0 });
-      incidentKpiSection.classList.toggle('d-none', !incidentMode);
+      incidentKpiSection.classList.toggle('d-none', !incidentMode || (state.workspaceView || 'summary') !== 'summary');
       $('incidentKpiOpen').textContent = counts.open;
       $('incidentKpiClosed').textContent = counts.closed;
       $('incidentKpiDraft').textContent = counts.draft;
@@ -2160,7 +2195,7 @@
     if($('equipmentQuantity')) $('equipmentQuantity').value = '1';
     if($('equipmentStatusSelect')) $('equipmentStatusSelect').value = 'Recepción';
     if($('equipmentComments')) $('equipmentComments').value = '';
-    if($('addEquipmentBtn')) $('addEquipmentBtn').textContent = 'Agregar equipo';
+    if($('addEquipmentBtn')) $('addEquipmentBtn').innerHTML = '<i class="bi bi-plus-lg" aria-hidden="true"></i><span class="add-equipment-label">Agregar equipo</span>';
     $('cancelEquipmentEditBtn')?.classList.add('d-none');
     clearEquipmentPhotoInputs();
   }
@@ -2222,7 +2257,7 @@
       $('equipmentQuantity').value = String(entry.quantity || 1);
       $('equipmentStatusSelect').value = entry.status || 'Recepción';
       $('equipmentComments').value = entry.desc || '';
-      $('addEquipmentBtn').textContent = 'Guardar equipo';
+      $('addEquipmentBtn').innerHTML = '<i class="bi bi-check2" aria-hidden="true"></i><span class="add-equipment-label">Guardar equipo</span>';
       $('cancelEquipmentEditBtn')?.classList.remove('d-none');
       clearEquipmentPhotoInputs();
       $('equipmentName')?.focus();
@@ -2246,6 +2281,11 @@
     const previewSection = $('previewSection');
     const existingReportSummarySection = $('existingReportSummarySection');
     const reportConclusionsSection = $('reportConclusionsSection');
+    const projectHeaderSection = $('projectHeaderSection');
+    const reportWorkspaceTitle = $('reportWorkspaceTitle');
+    const reportWorkspaceDesc = $('reportWorkspaceDesc');
+    const reportWorkspaceHeader = $('reportWorkspaceHeader');
+    const reportWorkspaceSection = $('reportWorkspaceSection');
     const equipmentMode = isEquipmentReport();
     const incidentMode = state.reportType === 'incidencia';
     const formOpen = !!state.showIssueForm && issueFormManuallyOpened;
@@ -2260,6 +2300,15 @@
     }
 
     state.showPreviewMode = view === 'preview';
+
+    if(projectHeaderSection){
+      projectHeaderSection.classList.toggle('d-none', view !== 'summary' && !state.editingReportMeta);
+    }
+    const hideWorkspaceHeader = view !== 'summary' && !state.editingReportMeta;
+    reportWorkspaceHeader?.classList.toggle('d-none', hideWorkspaceHeader);
+    reportWorkspaceTitle?.classList.toggle('d-none', hideWorkspaceHeader);
+    reportWorkspaceDesc?.classList.toggle('d-none', hideWorkspaceHeader);
+    reportWorkspaceSection?.classList.toggle('workspace-view-section-only', hideWorkspaceHeader);
 
     if(existingReportSummarySection){
       existingReportSummarySection.classList.toggle('d-none', equipmentMode || view !== 'summary');
@@ -2363,10 +2412,17 @@
         tableState.page = Math.min(tableState.page, totalPages);
         const start = (tableState.page - 1) * pageSize;
         const pageRows = filtered.slice(start, start + pageSize);
-        tableBody.innerHTML = pageRows.map((row, index) => `<tr><td>${start + index + 1}</td><td>${escapeHtml(row.frontName)}</td><td class="incident-table-description">${escapeHtml(row.entry.desc || 'Sin descripción')}</td><td>${escapeHtml(row.location)}</td><td>${statusBadge(row.entry.status || 'Sin estado')}</td><td>${escapeHtml(row.entry.incidentDate || 'Sin fecha')}</td><td>${escapeHtml(row.entry.responsibleCompany || 'Sin empresa')}</td><td><div class="incident-table-actions"><button data-id="${row.entry.id}" class="btn btn-sm btn-outline-secondary view-entry-detail" title="Ver detalle" aria-label="Ver detalle"><i class="bi bi-eye"></i></button><button data-id="${row.entry.id}" class="btn btn-sm btn-outline-primary edit-entry" title="Editar" aria-label="Editar"><i class="bi bi-pencil"></i></button><button data-id="${row.entry.id}" class="btn btn-sm btn-outline-danger delete-entry" title="Eliminar" aria-label="Eliminar"><i class="bi bi-trash3"></i></button></div></td></tr>`).join('') || '<tr><td colspan="8" class="incident-table-empty">No hay resultados para esos filtros.</td></tr>';
+        tableBody.innerHTML = pageRows.map((row, index) => `<tr><td>${start + index + 1}</td><td>${escapeHtml(row.frontName)}</td><td class="incident-table-description">${escapeHtml(row.entry.desc || 'Sin descripción')}</td><td>${escapeHtml(row.location)}</td><td>${statusBadge(row.entry.status || 'Sin estado')}</td><td>${escapeHtml(row.entry.incidentDate || 'Sin fecha')}</td><td>${escapeHtml(row.entry.responsibleCompany || 'Sin empresa')}</td><td><div class="incident-table-actions"><button type="button" class="btn btn-sm btn-outline-secondary incident-menu-toggle" title="Más acciones" aria-label="Más acciones" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button><div class="incident-action-menu"><button data-id="${row.entry.id}" class="incident-action-item view-entry-detail" role="menuitem"><i class="bi bi-eye me-2"></i>Ver</button><button data-id="${row.entry.id}" class="incident-action-item edit-entry" role="menuitem"><i class="bi bi-pencil me-2"></i>Editar</button><button data-id="${row.entry.id}" class="incident-action-item is-danger delete-entry" role="menuitem"><i class="bi bi-trash3 me-2"></i>Eliminar</button></div></div></td></tr>`).join('') || '<tr><td colspan="8" class="incident-table-empty">No hay resultados para esos filtros.</td></tr>';
         countLabel.textContent = filtered.length ? `Mostrando ${start + 1}-${Math.min(start + pageSize, filtered.length)} de ${filtered.length} issues` : '0 issues encontrados';
         pagination.innerHTML = Array.from({ length: totalPages }, (_, index) => `<button type="button" class="btn btn-sm ${index + 1 === tableState.page ? 'btn-primary' : 'btn-outline-secondary'} incident-page-btn" data-page="${index + 1}">${index + 1}</button>`).join('');
         pagination.querySelectorAll('.incident-page-btn').forEach(button => button.addEventListener('click', () => { tableState.page = Number(button.dataset.page); renderTable(); }));
+        list.querySelectorAll('.incident-menu-toggle').forEach(button => button.addEventListener('click', event => {
+          event.stopPropagation();
+          const menu = button.parentElement.querySelector('.incident-action-menu');
+          list.querySelectorAll('.incident-action-menu.is-open').forEach(item => { if(item !== menu) item.classList.remove('is-open'); });
+          menu.classList.toggle('is-open');
+          button.setAttribute('aria-expanded', String(menu.classList.contains('is-open')));
+        }));
         list.querySelectorAll('.edit-entry').forEach(btn => btn.addEventListener('click', () => {
           const entry = getEntryById(Number(btn.dataset.id));
           if(!entry) return;
@@ -2462,7 +2518,7 @@
     }
   }
 
-  function renderFrontList(){ const container = $('frontList'); container.innerHTML = ''; if(!state.fronts.length){ container.innerHTML = '<p class="text-muted small mb-0">Sin frentes. Agrega uno para poder registrar issues.</p>'; return; } state.fronts.forEach(f => { const n = frontNumber(f.id); const div = document.createElement('div'); div.className = 'front-item d-flex align-items-center justify-content-between flex-wrap gap-2'; div.innerHTML = `<div class="d-flex align-items-center gap-2"><span class="badge bg-dark front-num">${n}</span><span>${escapeHtml(f.name)}</span></div><div class="d-flex gap-2 flex-wrap"><button data-id="${f.id}" class="btn btn-sm btn-outline-primary edit-front-btn">Editar</button><button data-id="${f.id}" class="btn btn-sm btn-danger rm-front">Eliminar</button></div>`; container.appendChild(div); }); container.querySelectorAll('.rm-front').forEach(b => b.addEventListener('click', () => { const id = Number(b.dataset.id); if(confirm('¿Eliminar frente y sus entradas?')) removeFront(id); })); container.querySelectorAll('.edit-front-btn').forEach(b => b.addEventListener('click', () => { const id = Number(b.dataset.id); if(id) editFront(id); })); }
+  function renderFrontList(){ const container = $('frontList'); container.innerHTML = ''; if(!state.fronts.length){ container.innerHTML = '<p class="text-muted small mb-0">Sin frentes. Agrega uno para poder registrar issues.</p>'; return; } state.fronts.forEach(f => { const n = frontNumber(f.id); const div = document.createElement('div'); div.className = 'front-item d-flex align-items-center justify-content-between flex-wrap gap-2'; div.innerHTML = `<div class="d-flex align-items-center gap-2"><span class="badge bg-dark front-num">${n}</span><span>${escapeHtml(f.name)}</span></div><div class="front-actions"><button type="button" class="btn btn-sm btn-outline-secondary front-menu-toggle" aria-label="Más acciones" title="Más acciones" aria-expanded="false"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button><div class="front-menu" role="menu"><button type="button" data-id="${f.id}" class="front-menu-item edit-front-btn" role="menuitem"><i class="bi bi-pencil-square me-2" aria-hidden="true"></i>Editar</button><button type="button" data-id="${f.id}" class="front-menu-item is-danger rm-front" role="menuitem"><i class="bi bi-trash3 me-2" aria-hidden="true"></i>Eliminar</button></div></div>`; container.appendChild(div); }); container.querySelectorAll('.front-menu-toggle').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); const menu = b.parentElement.querySelector('.front-menu'); container.querySelectorAll('.front-menu.is-open').forEach(item => { if(item !== menu) item.classList.remove('is-open'); }); menu.classList.toggle('is-open'); b.setAttribute('aria-expanded', String(menu.classList.contains('is-open'))); })); container.querySelectorAll('.rm-front').forEach(b => b.addEventListener('click', () => { const id = Number(b.dataset.id); if(confirm('¿Eliminar frente y sus entradas?')) removeFront(id); })); container.querySelectorAll('.edit-front-btn').forEach(b => b.addEventListener('click', () => { const id = Number(b.dataset.id); if(id) editFront(id); })); }
   function renderEntryList(){ const container = $('entryList'); container.innerHTML = ''; const selectedFront = state.fronts.find(f => f.id === state.currentFrontId); const entries = selectedFront ? state.entries.filter(e => e.frontId === selectedFront.id) : state.entries; if(!entries.length){ container.innerHTML = '<p class="text-muted small mb-0">No hay issues en este frente. Crea una nueva issue cuando la necesites.</p>'; return; } entries.forEach(entry => { const front = state.fronts.find(f => f.id === entry.frontId); const name = front ? front.name : 'Frente eliminado'; const div = document.createElement('div'); div.className = 'entry-list-item'; div.innerHTML = `<div class="entry-list-meta"><div><strong>${escapeHtml(name)}</strong><br><span class="badge badge-status ${STATUS_BADGE[entry.status] || 'bg-info text-dark'}">${escapeHtml(entry.status)}</span></div><div class="entry-list-actions"><button data-id="${entry.id}" class="btn btn-sm btn-outline-primary edit-entry">Editar</button><button data-id="${entry.id}" class="btn btn-sm btn-outline-danger delete-entry">Borrar</button></div></div><div class="entry-list-body">${escapeHtml(entry.desc || 'Sin descripción')}</div>`; container.appendChild(div); }); container.querySelectorAll('.edit-entry').forEach(btn => btn.addEventListener('click', e => { const entry = getEntryById(Number(e.target.dataset.id)); if(!entry) return; state.editingEntryId = entry.id; state.showIssueForm = true; $('selectFront').value = entry.frontId; $('selectFront').disabled = true; $('statusSelect').value = entry.status; $('entryDesc').value = entry.desc || ''; $('addEntryBtn').textContent = 'Guardar cambios'; $('cancelEntryEditBtn').classList.remove('d-none'); $('photoInput').value = ''; save(); renderAll(); $('entryDesc')?.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }); })); container.querySelectorAll('.delete-entry').forEach(btn => btn.addEventListener('click', e => { const id = Number(e.target.dataset.id); if(confirm('¿Borrar esta entrada del reporte?')) removeEntry(id); })); }
   function renderDuplicateAlert(){ const el = $('duplicateAlert'); if(!el) return; const groups = findDuplicateGroups(); if(!groups.length){ el.innerHTML = ''; return; } el.innerHTML = groups.map(group => { const names = group.map(f => `${frontNumber(f.id)}. ${escapeHtml(f.name)}`).join(', '); const keepId = group[0].id; const removeIds = group.slice(1).map(f => f.id); return `<div class="dup-group small"><strong>Duplicados:</strong> ${names}<button class="btn btn-sm btn-warning ms-2 merge-group" data-keep="${keepId}" data-remove="${removeIds.join(',')}">Fusionar</button></div>`; }).join(''); el.querySelectorAll('.merge-group').forEach(btn => btn.addEventListener('click', e => { const keepId = Number(e.target.dataset.keep); const removeIds = e.target.dataset.remove.split(',').map(Number); mergeFronts(keepId, removeIds); })); }
   function updatePreviewScale(){
@@ -2629,18 +2685,20 @@
               <span class="dashboard-project-image-edit"><i class="bi bi-camera-fill" aria-hidden="true"></i></span>
             </button>
             <div class="dashboard-project-copy">
-              <div class="project-member-name">${escapeHtml(project.projectName || 'Proyecto sin nombre')}</div>
+              <div class="dashboard-project-name-row">
+                <div class="project-member-name">${escapeHtml(project.projectName || 'Proyecto sin nombre')}</div>
+                <div class="dashboard-project-actions">
+                  <button type="button" class="btn btn-sm btn-outline-secondary dashboard-project-menu-toggle" aria-label="Más acciones" title="Más acciones" aria-expanded="false"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button>
+                  <div class="dashboard-project-menu" role="menu">
+                    ${project.canEdit ? `<button type="button" data-id="${project.id}" class="dashboard-project-menu-item dashboard-project-edit" role="menuitem"><i class="bi bi-pencil-square me-2" aria-hidden="true"></i>Editar</button>` : ''}
+                    ${project.canDelete ? `<button type="button" data-id="${project.id}" class="dashboard-project-menu-item dashboard-project-delete is-danger" role="menuitem"><i class="bi bi-trash3 me-2" aria-hidden="true"></i>Eliminar</button>` : ''}
+                  </div>
+                </div>
+              </div>
               <div class="dashboard-project-meta-row"><span>Empresa</span><strong>${escapeHtml(project.companyName || 'Sin empresa')}</strong></div>
               <div class="dashboard-project-meta-row"><span>Dirección</span><strong>${escapeHtml(project.projectLocation || 'Sin ubicación')}</strong></div>
             </div>
             <span class="dashboard-project-status ${project.reports?.length ? 'is-active' : ''}">${project.reports?.length ? 'ACTIVO' : 'PLANNING'}</span>
-            <div class="dashboard-project-actions">
-              <button type="button" class="btn btn-sm btn-outline-secondary dashboard-project-menu-toggle" aria-label="Más acciones" title="Más acciones" aria-expanded="false"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button>
-              <div class="dashboard-project-menu" role="menu">
-                ${project.canEdit ? `<button type="button" data-id="${project.id}" class="dashboard-project-menu-item dashboard-project-edit" role="menuitem"><i class="bi bi-pencil-square me-2" aria-hidden="true"></i>Editar</button>` : ''}
-                ${project.canDelete ? `<button type="button" data-id="${project.id}" class="dashboard-project-menu-item dashboard-project-delete is-danger" role="menuitem"><i class="bi bi-trash3 me-2" aria-hidden="true"></i>Eliminar</button>` : ''}
-              </div>
-            </div>
           </div>
         `).join('') || '<div class="dashboard-projects-empty">No se encontraron proyectos.</div>';
       }
@@ -2684,7 +2742,12 @@
         </div>`).join('') : '<div class="dashboard-plans-empty"><i class="bi bi-person-badge" aria-hidden="true"></i><span>Aún no hay responsables agregados.</span></div>';
     }
     addTypeReportButton?.classList.toggle('d-none', !showingReports);
-    if(addTypeReportButton) addTypeReportButton.innerHTML = `<i class="bi bi-plus-circle me-1"></i>Agregar ${reportTypeLabels[projectDashboardReportType] || 'reporte'}`;
+    if(addTypeReportButton){
+      const reportLabel = reportTypeLabels[projectDashboardReportType] || 'reporte';
+      addTypeReportButton.title = `Agregar ${reportLabel}`;
+      addTypeReportButton.setAttribute('aria-label', `Agregar ${reportLabel}`);
+      addTypeReportButton.innerHTML = '<i class="bi bi-plus-lg" aria-hidden="true"></i>';
+    }
     const plans = Array.isArray(current.plans) ? current.plans : [];
     uploadPlanButton?.classList.toggle('d-none', !current.canEdit);
     if(plansCount) plansCount.textContent = plans.length;
@@ -2750,9 +2813,13 @@
           <div class="list-group-item dashboard-report-item">
             <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
               <button type="button" data-id="${report.id}" class="btn btn-link p-0 text-start flex-grow-1 dashboard-report-open">${escapeHtml(report.title || 'Reporte sin título')}</button>
-              <div class="d-flex align-items-center gap-2">
-                ${(report.canShare) ? `<button type="button" data-report-share="${report.id}" class="btn btn-sm btn-outline-secondary" title="Colaboración"><i class="bi bi-people"></i></button>` : ''}
-                ${(report.canEdit) ? `<button type="button" data-report-delete="${report.id}" class="btn btn-sm btn-outline-danger" title="Eliminar reporte"><i class="bi bi-trash"></i></button>` : ''}
+              <div class="dashboard-report-actions">
+                <button type="button" class="btn btn-sm btn-outline-secondary dashboard-report-menu-toggle" aria-label="Más acciones" title="Más acciones" aria-expanded="false"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button>
+                <div class="dashboard-report-menu" role="menu">
+                  ${(report.canEdit) ? `<button type="button" data-report-edit="${report.id}" class="dashboard-report-menu-item" role="menuitem"><i class="bi bi-pencil-square me-2" aria-hidden="true"></i>Editar</button>` : ''}
+                  ${(report.canShare) ? `<button type="button" data-report-share="${report.id}" class="dashboard-report-menu-item" role="menuitem"><i class="bi bi-people me-2" aria-hidden="true"></i>Compartir</button>` : ''}
+                  ${(report.canEdit) ? `<button type="button" data-report-delete="${report.id}" class="dashboard-report-menu-item is-danger" role="menuitem"><i class="bi bi-trash3 me-2" aria-hidden="true"></i>Eliminar</button>` : ''}
+                </div>
               </div>
             </div>
             ${report.canShare ? `
@@ -3307,9 +3374,25 @@
 
     document.addEventListener('click', closeMobileSidebarOnOutsideTap);
 
+    document.addEventListener('click', event => {
+      const path = event.composedPath ? event.composedPath() : [event.target];
+      const insideMenuAction = path.some(el => el instanceof Element && el.closest('.dashboard-project-actions, .dashboard-report-actions, .front-actions, .incident-table-actions'));
+      if(insideMenuAction) return;
+      document.querySelectorAll('.dashboard-project-menu.is-open, .dashboard-report-menu.is-open, .front-menu.is-open, .incident-action-menu.is-open').forEach(menu => {
+        menu.classList.remove('is-open');
+        menu.parentElement?.querySelector('[aria-expanded="true"]')?.setAttribute('aria-expanded', 'false');
+      });
+    });
+
     document.addEventListener('keydown', event => {
       if(event.key === 'Escape' && window.innerWidth <= 992){
         setSidebarState(false);
+      }
+      if(event.key === 'Escape'){
+        document.querySelectorAll('.dashboard-project-menu.is-open, .dashboard-report-menu.is-open, .front-menu.is-open, .incident-action-menu.is-open').forEach(menu => {
+          menu.classList.remove('is-open');
+          menu.parentElement?.querySelector('[aria-expanded="true"]')?.setAttribute('aria-expanded', 'false');
+        });
       }
     });
 
@@ -3359,6 +3442,7 @@
         }
         const target = document.querySelector(link.getAttribute('href'));
         target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       };
       link.addEventListener('click', handleWorkspaceLink);
     });
@@ -3764,7 +3848,27 @@
     let isPanningPlan = false;
     let lastPanX = 0;
     let lastPanY = 0;
+    const touchPoints = new Map();
+    let lastPinchDistance = 0;
+    const getPinchState = () => {
+      const points = [...touchPoints.values()];
+      if(points.length < 2) return null;
+      const [first, second] = points;
+      return {
+        distance: Math.hypot(second.x - first.x, second.y - first.y),
+        centerX: (first.x + second.x) / 2,
+        centerY: (first.y + second.y) / 2,
+      };
+    };
     planCanvasWrap?.addEventListener('pointerdown', e => {
+      if(e.pointerType === 'touch'){
+        e.preventDefault();
+        touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const pinch = getPinchState();
+        if(pinch) lastPinchDistance = pinch.distance;
+        planCanvasWrap.setPointerCapture(e.pointerId);
+        return;
+      }
       if(e.button !== 1) return;
       e.preventDefault();
       e.stopPropagation();
@@ -3775,6 +3879,17 @@
       planCanvasWrap.classList.add('is-panning');
     });
     planCanvasWrap?.addEventListener('pointermove', e => {
+      if(e.pointerType === 'touch' && touchPoints.has(e.pointerId)){
+        e.preventDefault();
+        touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const pinch = getPinchState();
+        if(pinch && lastPinchDistance){
+          const zoomRatio = pinch.distance / lastPinchDistance;
+          setPlanZoom(planZoom * zoomRatio, pinch.centerX, pinch.centerY);
+          lastPinchDistance = pinch.distance;
+        }
+        return;
+      }
       if(!isPanningPlan) return;
       planPanX += e.clientX - lastPanX;
       planPanY += e.clientY - lastPanY;
@@ -3944,6 +4059,36 @@
       if($('issuePlanPointStatus')) $('issuePlanPointStatus').textContent = `Punto seleccionado para ${projectDashboardReportType === 'incidencia' ? 'Reporte de incidencia' : 'Reporte de avances'}.`;
     });
     $('dashboardReportList')?.addEventListener('click', e => {
+      const menuToggle = e.target.closest('.dashboard-report-menu-toggle');
+      if(menuToggle){
+        const menu = menuToggle.parentElement?.querySelector('.dashboard-report-menu');
+        document.querySelectorAll('.dashboard-report-menu.is-open').forEach(item => {
+          if(item !== menu) item.classList.remove('is-open');
+        });
+        menu?.classList.toggle('is-open');
+        menuToggle.setAttribute('aria-expanded', String(menu?.classList.contains('is-open')));
+        return;
+      }
+      const editButton = e.target.closest('[data-report-edit]');
+      if(editButton){
+        const reportId = Number(editButton.dataset.reportEdit);
+        const project = getCurrentProject();
+        const report = project?.reports?.find(item => item.id === reportId);
+        if(!project || !report) return;
+        if(!ensureCanEditReport('No tienes permisos para editar este reporte.')) return;
+        project.currentReportId = reportId;
+        state.currentReportId = reportId;
+        state.existingReportOpen = true;
+        state.reportMetaComplete = true;
+        state.editingReportMeta = true;
+        state.workspaceView = 'summary';
+        loadProject(project);
+        save();
+        setReportRoute(project, reportId);
+        renderAll();
+        showAppScreen();
+        return;
+      }
       const deleteButton = e.target.closest('[data-report-delete]');
       if(deleteButton){
         const reportId = Number(deleteButton.dataset.reportDelete);
@@ -3978,6 +4123,12 @@
             renderAll();
           })
           .catch(error => alert(error.message));
+            if(e.pointerType === 'touch'){
+              touchPoints.delete(e.pointerId);
+              if(touchPoints.size < 2) lastPinchDistance = 0;
+              if(planCanvasWrap.hasPointerCapture(e.pointerId)) planCanvasWrap.releasePointerCapture(e.pointerId);
+              return;
+            }
         return;
       }
       const button = e.target.closest('.dashboard-report-open');
@@ -3989,7 +4140,6 @@
       state.currentReportId = reportId;
       state.existingReportOpen = true;
       state.reportMetaComplete = true;
-      state.workspaceView = 'summary';
       loadProject(project);
       save();
       setReportRoute(project, reportId);
@@ -4211,6 +4361,21 @@
       }
       save();
       setReportRoute(project, state.currentReportId);
+      renderAll();
+      showAppScreen();
+    });
+    $('cancelReportCreationBtn')?.addEventListener('click', () => {
+      const project = getCurrentProject();
+      if(!project) return;
+      resetReportDraftState();
+      state.currentReportId = null;
+      state.existingReportOpen = false;
+      state.reportMetaComplete = false;
+      state.editingReportMeta = false;
+      state.showPreviewMode = false;
+      state.workspaceView = 'summary';
+      save();
+      setProjectRoute(project);
       renderAll();
       showAppScreen();
     });
@@ -4454,7 +4619,16 @@
       select.innerHTML = plans.map(plan => `<option value="${plan.id}">${escapeHtml(plan.name)}</option>`).join('');
       if(issuePlanPoint?.planId) select.value = String(issuePlanPoint.planId);
       picker.classList.remove('d-none');
+      issuePlanPickerZoom = 1;
       await renderIssuePlanPicker(plans.find(plan => plan.id === Number(select.value)) || plans[0]);
+    });
+    $('issuePlanPickerZoomIn')?.addEventListener('click', async () => {
+      issuePlanPickerZoom = Math.min(3, issuePlanPickerZoom + 0.25);
+      applyIssuePlanPickerZoom();
+    });
+    $('issuePlanPickerZoomOut')?.addEventListener('click', async () => {
+      issuePlanPickerZoom = Math.max(1, issuePlanPickerZoom - 0.25);
+      applyIssuePlanPickerZoom();
     });
     $('issuePlanSelect')?.addEventListener('change', async e => {
       const project = getCurrentProject();
@@ -4463,18 +4637,21 @@
       $('issuePlanPickerMarker')?.classList.add('d-none');
       await renderIssuePlanPicker(plan);
     });
-    $('issuePlanPickerCanvas')?.addEventListener('click', e => {
+    $('issuePlanPickerCanvas')?.addEventListener('pointerdown', e => {
+      e.preventDefault();
       const canvas = $('issuePlanPickerCanvas');
       const rect = canvas.getBoundingClientRect();
       const planId = Number($('issuePlanSelect').value);
-      issuePlanPoint = { planId, x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)) };
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      issuePlanPoint = { planId, x, y };
       const marker = $('issuePlanPickerMarker');
       const pointNumber = (state.entries || []).filter(entry => Number(entry.planId) === planId && entry.id !== state.editingEntryId && entry.planX != null && entry.planY != null).length + 1;
       marker.textContent = pointNumber;
-      marker.style.left = `${e.clientX - rect.left}px`;
-      marker.style.top = `${e.clientY - rect.top}px`;
+      marker.style.left = `${x * rect.width}px`;
+      marker.style.top = `${y * rect.height}px`;
       marker.classList.remove('d-none');
-    });
+    }, { passive: false });
     $('saveIssuePlanPointBtn')?.addEventListener('click', () => {
       if(!issuePlanPoint){ alert('Haz clic en el plano para elegir el punto.'); return; }
       $('issuePlanId').value = String(issuePlanPoint.planId);
