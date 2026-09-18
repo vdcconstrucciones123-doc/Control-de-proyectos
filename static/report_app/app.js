@@ -69,6 +69,8 @@
   let issuePlanPoint = null;
   let pendingProjectPhotoId = null;
   let pendingRemovedEntryImageIds = new Set();
+  let pendingEntryPhotoItems = [];
+  let photoEditorState = null;
 
   let state = {
     projects: [],
@@ -1752,8 +1754,49 @@
     if(state.editingEntryId === id){ resetEntryEditor(); }
     save(); renderAll();
   }
-  function clearEntryPhotoInputs(){ if($('photoInput')) $('photoInput').value = ''; if($('photoCameraInput')) $('photoCameraInput').value = ''; }
-  function getEntryPhotoFiles(){ return [...($('photoInput')?.files ? Array.from($('photoInput').files) : []), ...($('photoCameraInput')?.files ? Array.from($('photoCameraInput').files) : [])]; }
+  function clearEntryPhotoInputs(){ if($('photoInput')) $('photoInput').value = ''; if($('photoCameraInput')) $('photoCameraInput').value = ''; pendingEntryPhotoItems = []; renderPendingEntryPhotos(); }
+  function getEntryPhotoFiles(){ return pendingEntryPhotoItems.map(item => item.file); }
+  function renderPendingEntryPhotos(){
+    const container = $('pendingEntryPhotos');
+    if(!container) return;
+    if(!pendingEntryPhotoItems.length){ container.replaceChildren(); container.classList.add('d-none'); return; }
+    container.classList.remove('d-none');
+    container.innerHTML = pendingEntryPhotoItems.map((item, index) => `<div class="pending-entry-photo"><div class="pending-entry-photo-preview"><img src="${item.preview}" alt="${escapeHtml(item.file.name || 'Foto')}" /><span class="pending-entry-photo-check" title="Lista para subir"><i class="bi bi-check2"></i></span></div><div class="pending-entry-photo-actions"><button type="button" class="pending-photo-action pending-photo-edit" data-index="${index}" title="Editar foto" aria-label="Editar foto"><i class="bi bi-pencil"></i></button><button type="button" class="pending-photo-action pending-photo-delete" data-index="${index}" title="Borrar foto" aria-label="Borrar foto"><i class="bi bi-trash3"></i></button></div></div>`).join('');
+    container.querySelectorAll('.pending-photo-delete').forEach(button => button.addEventListener('click', () => { pendingEntryPhotoItems.splice(Number(button.dataset.index), 1); renderPendingEntryPhotos(); }));
+    container.querySelectorAll('.pending-photo-edit').forEach(button => button.addEventListener('click', () => openPhotoEditor(Number(button.dataset.index))));
+  }
+  async function addPendingEntryPhotos(files){
+    const imageFiles = Array.from(files || []).filter(file => file.type.startsWith('image/'));
+    const items = await Promise.all(imageFiles.map(async file => ({ file, preview: await readFileAsDataUrl(file) })));
+    pendingEntryPhotoItems.push(...items);
+    renderPendingEntryPhotos();
+  }
+  async function openPhotoEditor(index){
+    const item = pendingEntryPhotoItems[index];
+    const canvas = $('photoEditorCanvas');
+    if(!item || !canvas) return;
+    const image = await loadImageFromDataUrl(item.preview);
+    const size = getScaledSize(image.width, image.height, 1400);
+    canvas.width = size.width;
+    canvas.height = size.height;
+    canvas.getContext('2d').drawImage(image, 0, 0, size.width, size.height);
+    photoEditorState = { index, image, drawing: false, lastX: 0, lastY: 0 };
+    $('photoEditor')?.classList.remove('d-none');
+  }
+  function closePhotoEditor(){ photoEditorState = null; $('photoEditor')?.classList.add('d-none'); }
+  async function savePhotoEditor(){
+    const canvas = $('photoEditorCanvas');
+    const editor = photoEditorState;
+    if(!canvas || !editor || !pendingEntryPhotoItems[editor.index]) return;
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, UPLOAD_FILE_MIME, UPLOAD_IMAGE_QUALITY));
+    if(!blob) return;
+    const original = pendingEntryPhotoItems[editor.index].file;
+    const name = (original.name || 'foto').replace(/\.[^.]+$/, '') + '-editada.jpg';
+    const file = new File([blob], name, { type: UPLOAD_FILE_MIME, lastModified: Date.now() });
+    pendingEntryPhotoItems[editor.index] = { file, preview: canvas.toDataURL(UPLOAD_FILE_MIME, UPLOAD_IMAGE_QUALITY) };
+    closePhotoEditor();
+    renderPendingEntryPhotos();
+  }
   function renderResponsibleCompanySelect(value){
     const select = $('responsibleCompany');
     if(!select) return;
@@ -4597,6 +4640,48 @@
     });
     $('takePhotoBtn')?.addEventListener('click', () => $('photoCameraInput')?.click());
     $('choosePhotoBtn')?.addEventListener('click', () => $('photoInput')?.click());
+    $('photoInput')?.addEventListener('change', event => addPendingEntryPhotos(event.target.files));
+    $('photoCameraInput')?.addEventListener('change', event => addPendingEntryPhotos(event.target.files));
+    $('closePhotoEditorBtn')?.addEventListener('click', closePhotoEditor);
+    $('cancelPhotoEditorBtn')?.addEventListener('click', closePhotoEditor);
+    $('savePhotoEditorTopBtn')?.addEventListener('click', () => savePhotoEditor().catch(error => alert(error.message)));
+    $('savePhotoEditorBtn')?.addEventListener('click', () => savePhotoEditor().catch(error => alert(error.message)));
+    $('clearPhotoDrawingBtn')?.addEventListener('click', () => {
+      const canvas = $('photoEditorCanvas');
+      const editor = photoEditorState;
+      if(!canvas || !editor) return;
+      const context = canvas.getContext('2d');
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(editor.image, 0, 0, canvas.width, canvas.height);
+    });
+    const photoCanvas = $('photoEditorCanvas');
+    photoCanvas?.addEventListener('pointerdown', event => {
+      if(!photoEditorState) return;
+      const rect = photoCanvas.getBoundingClientRect();
+      photoEditorState.drawing = true;
+      photoEditorState.lastX = (event.clientX - rect.left) * photoCanvas.width / rect.width;
+      photoEditorState.lastY = (event.clientY - rect.top) * photoCanvas.height / rect.height;
+      photoCanvas.setPointerCapture(event.pointerId);
+    });
+    photoCanvas?.addEventListener('pointermove', event => {
+      if(!photoEditorState?.drawing) return;
+      const rect = photoCanvas.getBoundingClientRect();
+      const x = (event.clientX - rect.left) * photoCanvas.width / rect.width;
+      const y = (event.clientY - rect.top) * photoCanvas.height / rect.height;
+      const context = photoCanvas.getContext('2d');
+      context.strokeStyle = '#e11d48';
+      context.lineWidth = Math.max(5, photoCanvas.width / 180);
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
+      context.beginPath();
+      context.moveTo(photoEditorState.lastX, photoEditorState.lastY);
+      context.lineTo(x, y);
+      context.stroke();
+      photoEditorState.lastX = x;
+      photoEditorState.lastY = y;
+    });
+    photoCanvas?.addEventListener('pointerup', () => { if(photoEditorState) photoEditorState.drawing = false; });
+    photoCanvas?.addEventListener('pointercancel', () => { if(photoEditorState) photoEditorState.drawing = false; });
     $('addFrontBtn')?.addEventListener('click', async () => {
       if(!ensureCanEditReport('No tienes permisos para agregar frentes en este reporte.')){
         return;

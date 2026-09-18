@@ -650,6 +650,7 @@
           </div>
           <input id="photoCameraInput" type="file" accept="image/*" capture="environment" multiple class="d-none">
           <input id="photoInput" type="file" accept="image/*" multiple class="d-none">
+          <div id="pendingEntryPhotos" class="pending-entry-photos d-none" aria-live="polite"></div>
           <div class="form-text">Puedes tomar una foto nueva o elegir imágenes guardadas.</div>
         </div>
         <div class="mb-2 d-flex gap-2 flex-wrap">
@@ -676,6 +677,23 @@
             <div class="issue-plan-picker-canvas-wrap"><canvas id="issuePlanPickerCanvas"></canvas><div id="issuePlanPickerMarker" class="issue-plan-picker-marker d-none">1</div></div>
           </div>
           <div class="issue-plan-picker-footer"><button id="clearIssuePlanPointBtn" type="button" class="btn btn-outline-secondary btn-sm">Quitar punto</button><button id="saveIssuePlanPointBtn" type="button" class="btn btn-primary btn-sm">Usar esta ubicación</button></div>
+        </div>
+      </div>
+
+      <div id="photoEditor" class="photo-editor d-none" role="dialog" aria-modal="true" aria-labelledby="photoEditorTitle">
+        <div class="photo-editor-dialog">
+          <div class="photo-editor-header">
+            <strong id="photoEditorTitle">Editar foto</strong>
+            <div class="photo-editor-header-actions"><button id="savePhotoEditorTopBtn" type="button" class="btn btn-primary btn-sm" title="Guardar foto"><i class="bi bi-check2 me-1"></i>Guardar</button><button id="closePhotoEditorBtn" type="button" class="btn-close" aria-label="Cerrar"></button></div>
+          </div>
+          <div class="photo-editor-body">
+            <p class="small text-muted mb-2">Dibuja sobre la foto para señalar una observación.</p>
+            <div class="photo-editor-canvas-wrap"><canvas id="photoEditorCanvas"></canvas></div>
+          </div>
+          <div class="photo-editor-footer">
+            <button id="clearPhotoDrawingBtn" type="button" class="btn btn-outline-secondary btn-sm">Limpiar dibujo</button>
+            <div class="d-flex gap-2"><button id="cancelPhotoEditorBtn" type="button" class="btn btn-outline-secondary btn-sm">Cancelar</button><button id="savePhotoEditorBtn" type="button" class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>Guardar foto</button></div>
+          </div>
         </div>
       </div>
 
