@@ -43,7 +43,19 @@ logger = logging.getLogger(__name__)
 
 def mobility_expenses(request):
     expenses = MobilityExpense.objects.all()
+    editing_id = request.GET.get("edit") or request.POST.get("expense_id")
+    expense_to_edit = None
+    if editing_id:
+        expense_to_edit = get_object_or_404(MobilityExpense, pk=editing_id)
+
+    form_values = request.POST if request.method == "POST" else None
+
     if request.method == "POST":
+        if request.POST.get("action") == "delete":
+            expense_to_delete = get_object_or_404(MobilityExpense, pk=request.POST.get("expense_id"))
+            expense_to_delete.delete()
+            return redirect("mobility_entry")
+
         date = _coerce_date(request.POST.get("date"))
         amount_text = (request.POST.get("amount") or "").replace(",", ".").strip()
         try:
@@ -53,21 +65,40 @@ def mobility_expenses(request):
         if not date or amount <= 0:
             return render(request, "report_app/mobility_entry.html", {
                 "expenses": expenses,
+                "expense_to_edit": expense_to_edit,
+                "form_values": form_values,
                 "error": "Ingresa una fecha y un monto mayor que cero.",
             }, status=400)
-        MobilityExpense.objects.create(
-            date=date,
-            amount=amount,
-            transport=(request.POST.get("transport") or "").strip(),
-            origin=(request.POST.get("origin") or "").strip(),
-            destination=(request.POST.get("destination") or "").strip(),
-            status=request.POST.get("status") if request.POST.get("status") in dict(MobilityExpense.STATUS_CHOICES) else MobilityExpense.STATUS_PENDING,
-            receipt=request.FILES.get("receipt"),
-            notes=(request.POST.get("notes") or "").strip(),
-        )
+
+        payload = {
+            "date": date,
+            "amount": amount,
+            "transport": "",
+            "origin": "",
+            "destination": "",
+            "status": request.POST.get("status") if request.POST.get("status") in dict(MobilityExpense.STATUS_CHOICES) else MobilityExpense.STATUS_PENDING,
+            "notes": (request.POST.get("notes") or "").strip(),
+        }
+        receipt = request.FILES.get("receipt")
+        if receipt is not None:
+            payload["receipt"] = receipt
+
+        if expense_to_edit:
+            for key, value in payload.items():
+                setattr(expense_to_edit, key, value)
+            expense_to_edit.save()
+        else:
+            MobilityExpense.objects.create(**payload)
         return redirect("mobility_entry")
+
     return render(request, "report_app/mobility_entry.html", {
         "expenses": expenses,
+        "expense_to_edit": expense_to_edit,
+        "form_values": form_values,
+        "form_date": expense_to_edit.date.isoformat() if expense_to_edit else "",
+        "form_amount": format(expense_to_edit.amount, ".2f") if expense_to_edit else "",
+        "form_status": expense_to_edit.status if expense_to_edit else "",
+        "form_notes": expense_to_edit.notes if expense_to_edit else "",
         "total": sum((expense.amount for expense in expenses), Decimal("0")),
     })
 
@@ -79,6 +110,19 @@ def mobility_preview(request):
         "total": sum((expense.amount for expense in expenses), Decimal("0")),
         "total_paid": sum((expense.amount for expense in expenses if expense.status == MobilityExpense.STATUS_PAID), Decimal("0")),
         "total_pending": sum((expense.amount for expense in expenses if expense.status == MobilityExpense.STATUS_PENDING), Decimal("0")),
+        "compact": True,
+    })
+
+
+def mobility_receipt(request, expense_id):
+    expense = get_object_or_404(MobilityExpense, pk=expense_id)
+    if not expense.receipt:
+        return redirect("mobility_entry")
+    return_to_preview = request.GET.get("from") == "preview"
+    return render(request, "report_app/mobility_receipt.html", {
+        "expense": expense,
+        "is_pdf": expense.receipt.name.lower().endswith(".pdf"),
+        "return_url": reverse("mobility_preview" if return_to_preview else "mobility_entry"),
     })
 
 

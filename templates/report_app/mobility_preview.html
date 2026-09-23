@@ -14,15 +14,62 @@
   table { width:100%; border-collapse:collapse; min-width:760px; } th, td { padding:13px 14px; border-bottom:1px solid #e7ecef; text-align:left; } th { background:#f3f6f7; color:#344452; font-size:.8rem; text-transform:uppercase; } tr:last-child td { border-bottom:0; }
   .status { font-weight:700; } .status-pagado { color:#237346; } .status-pendiente { color:#a15b15; }
   .empty { padding:28px; text-align:center; color:#65717d; }
-  @media (max-width:700px) { .preview-header { display:block; } .preview-actions { margin-top:18px; } .summary { grid-template-columns:1fr; } }
+  @media (max-width:700px) {
+    .preview-page { padding: 16px 8px 28px; }
+    .preview-header { display:block; margin-bottom: 8px !important; }
+    .preview-header h1 { font-size: 1.15rem !important; }
+    .preview-header p { font-size: .78rem; }
+    .summary { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 5px !important; margin-bottom: 8px !important; }
+    .summary div { padding: 8px 6px; border-radius: 6px; }
+    .summary span { font-size: .65rem; }
+    .summary strong { font-size: .82rem; }
+    .table-wrap { border-radius: 7px; }
+    .table-wrap table { min-width: 0; font-size: .72rem; }
+    .table-wrap th, .table-wrap td { padding: 7px 6px; }
+    .table-wrap th { font-size: .65rem; }
+  }
 </style>
 {% endblock %}
 {% block content %}
-<main class="preview-page">
-  <header class="preview-header"><div><h1>Control de movilidad</h1><p>Resumen de traslados entre obras</p></div><div class="preview-actions"><a href="{% url 'mobility_entry' %}">+ Ingresar movilidad</a></div></header>
-  <section class="summary"><div><span>Total general</span><strong>S/ {{ total|floatformat:"2u" }}</strong></div><div><span>Pagado</span><strong>S/ {{ total_paid|floatformat:"2u" }}</strong></div><div><span>Pendiente</span><strong>S/ {{ total_pending|floatformat:"2u" }}</strong></div></section>
-  <section class="table-wrap">
-    {% if expenses %}<table><thead><tr><th>Fecha</th><th>S/</th><th>Movilidad</th><th>Origen</th><th>Destino</th><th>Evidencia</th><th>Estado</th><th>Observación</th></tr></thead><tbody>{% for expense in expenses %}<tr><td>{{ expense.date|date:"d/m/Y" }}</td><td>{{ expense.amount|floatformat:"2u" }}</td><td>{{ expense.transport|default:"-" }}</td><td>{{ expense.origin|default:"-" }}</td><td>{{ expense.destination|default:"-" }}</td><td>{% if expense.receipt %}<a href="{{ expense.receipt.url }}" target="_blank" rel="noopener">Ver archivo</a>{% else %}-{% endif %}</td><td class="status status-{{ expense.status }}">{{ expense.get_status_display }}</td><td>{{ expense.notes|default:"-" }}</td></tr>{% endfor %}</tbody></table>{% else %}<div class="empty">Todavía no hay movilidades registradas.</div>{% endif %}
+<main class="preview-page" style="max-width: 760px;">
+  <header class="preview-header" style="margin-bottom: 12px;">
+    <div>
+      <h1 style="font-size: 1.35rem; margin-bottom: 4px;">Control de movilidad</h1>
+      <p style="margin: 0; color: #65717d;">Resumen para compartir</p>
+    </div>
+  </header>
+
+  <section class="summary" style="grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px;">
+    <div><span>Total</span><strong>S/ {{ total|floatformat:"2u" }}</strong></div>
+    <div><span>Pagado</span><strong>S/ {{ total_paid|floatformat:"2u" }}</strong></div>
+    <div><span>Pendiente</span><strong>S/ {{ total_pending|floatformat:"2u" }}</strong></div>
+  </section>
+
+  <section class="table-wrap" style="font-size: 0.82rem;">
+    {% if expenses %}
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>S/</th>
+          <th>Estado</th>
+          <th>Evidencia</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for expense in expenses %}
+        <tr>
+          <td>{{ expense.date|date:"d/m/Y" }} <small style="color:#65717d;">({{ expense.date|date:"D"|lower }})</small></td>
+          <td>{{ expense.amount|floatformat:"2u" }}</td>
+          <td class="status status-{{ expense.status }}">{{ expense.get_status_display }}</td>
+          <td>{% if expense.receipt %}<a href="{% url 'mobility_receipt' expense.id %}?from=preview">Ver</a>{% else %}-{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">Todavía no hay movilidades registradas.</div>
+    {% endif %}
   </section>
 </main>
 {% endblock %}

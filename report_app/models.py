@@ -2,6 +2,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models.signals import post_delete, pre_save
 from django.dispatch import receiver
+from django.utils.dateparse import parse_date
 from django.utils.text import slugify
 
 if "cloudinary_storage" in settings.INSTALLED_APPS:
@@ -42,7 +43,12 @@ def profile_image_upload_to(instance, filename):
 
 
 def mobility_receipt_upload_to(instance, filename):
-    return f"movilidad/{instance.date:%Y/%m}/" + filename
+    date_value = getattr(instance, "date", None)
+    if isinstance(date_value, str):
+        date_value = parse_date(date_value)
+    if date_value is None:
+        return "movilidad/" + filename
+    return f"movilidad/{date_value:%Y/%m}/" + filename
 
 
 class ReportProject(models.Model):
@@ -360,6 +366,11 @@ def delete_profile_image_on_replace(sender, instance, **kwargs):
 @receiver(post_delete, sender=EntryImage)
 def delete_entry_image_on_delete(sender, instance, **kwargs):
     _delete_file(instance.image)
+
+
+@receiver(post_delete, sender=MobilityExpense)
+def delete_mobility_receipt_on_delete(sender, instance, **kwargs):
+    _delete_file(instance.receipt)
 
 
 @receiver(pre_save, sender=EntryImage)

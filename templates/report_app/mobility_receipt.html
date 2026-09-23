@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Evidencia de movilidad{% endblock %}
+{% block extra_head %}
+<style>
+  .receipt-page { max-width: 900px; margin: 0 auto; padding: 24px 16px 40px; }
+  .receipt-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .receipt-header h1 { margin: 0; font-size: 1.35rem; }
+  .receipt-back { color: #1f566b; border: 1px solid #b7cbd3; border-radius: 6px; padding: 9px 12px; text-decoration: none; white-space: nowrap; }
+  .receipt-preview { display: flex; justify-content: center; align-items: center; min-height: 260px; padding: 16px; background: #f4f7f9; border: 1px solid #dfe5e9; border-radius: 10px; }
+  .receipt-preview img { display: block; max-width: 100%; max-height: 72vh; object-fit: contain; }
+  .receipt-preview iframe { width: 100%; height: 72vh; border: 0; background: white; }
+  @media (max-width: 700px) {
+    .receipt-page { padding: 16px 8px 28px; }
+    .receipt-header h1 { font-size: 1.05rem; }
+    .receipt-back { font-size: .78rem; padding: 7px 9px; }
+    .receipt-preview { min-height: 180px; padding: 8px; }
+    .receipt-preview iframe { height: 70vh; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<main class="receipt-page">
+  <header class="receipt-header">
+    <h1>Evidencia · {{ expense.date|date:"d/m/Y" }} · S/ {{ expense.amount|floatformat:"2u" }}</h1>
+    <a class="receipt-back" href="{{ return_url }}">Regresar</a>
+  </header>
+  <section class="receipt-preview">
+    {% if is_pdf %}
+      <iframe src="{{ expense.receipt.url }}" title="Evidencia de movilidad"></iframe>
+    {% else %}
+      <img src="{{ expense.receipt.url }}" alt="Evidencia de movilidad">
+    {% endif %}
+  </section>
+</main>
+{% endblock %}
+{% block scripts %}{% endblock %}

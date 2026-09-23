@@ -16,32 +16,98 @@
   .mobility-actions a { color: #1f566b; border: 1px solid #b7cbd3; }
   .mobility-actions button { border: 0; background: #1f566b; color: white; font-weight: 700; }
   .mobility-error { color: #a32020; background: #fff1f1; padding: 10px 12px; border-radius: 6px; margin-bottom: 16px; }
-  @media (max-width: 700px) { .mobility-hero { display: block; } .mobility-grid { grid-template-columns: 1fr; } .mobility-grid .full { grid-column: auto; } .mobility-actions { align-items: stretch; flex-direction: column-reverse; } }
+  @media (max-width: 700px) {
+    .mobility-page { padding: 18px 8px 28px; }
+    .mobility-hero { display: block; margin-bottom: 14px; }
+    .mobility-hero h1 { font-size: 1.4rem; }
+    .mobility-hero p { font-size: .78rem; margin-top: 3px; }
+    .mobility-hero strong { font-size: .82rem; }
+    .mobility-panel { padding: 10px; }
+    .mobility-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .mobility-grid .full { grid-column: 1 / -1; }
+    .mobility-grid label { font-size: .68rem; margin-bottom: 2px; }
+    .mobility-grid input, .mobility-grid select { font-size: .76rem; padding: 6px 7px; }
+    .mobility-actions { align-items: center; flex-direction: row; margin-top: 8px; gap: 5px; }
+    .mobility-actions > div { display: flex; gap: 4px !important; flex-wrap: wrap; }
+    .mobility-actions a, .mobility-actions button { font-size: .7rem; padding: 6px 7px; }
+    .mobility-expenses-heading { font-size: .95rem !important; margin-bottom: 10px !important; }
+    .mobility-expenses-table { min-width: 570px !important; font-size: .72rem; }
+    .mobility-expenses-table th, .mobility-expenses-table td { padding: 6px 7px !important; }
+  }
 </style>
 {% endblock %}
 {% block content %}
 <main class="mobility-page">
   <div class="mobility-hero">
-    <div><h1>Ingresar movilidad</h1><p>Registra el traslado entre tus dos obras y adjunta el comprobante.</p></div>
+    <div><h1>Ingresar movilidad</h1><p>Registra cada gasto y revisa la lista antes de compartir.</p></div>
     <strong>Total registrado: S/ {{ total|floatformat:"2u" }}</strong>
   </div>
   <section class="mobility-panel">
     {% if error %}<div class="mobility-error">{{ error }}</div>{% endif %}
     <form method="post" enctype="multipart/form-data">
       {% csrf_token %}
+      <input type="hidden" name="expense_id" value="{% if expense_to_edit %}{{ expense_to_edit.id }}{% elif form_values and form_values.expense_id %}{{ form_values.expense_id }}{% endif %}">
       <div class="mobility-grid">
-        <div><label for="date">Fecha</label><input id="date" name="date" type="date" required></div>
-        <div><label for="amount">Monto (S/)</label><input id="amount" name="amount" type="number" min="0.01" step="0.01" placeholder="12.80" required></div>
-        <div><label for="transport">Movilidad</label><input id="transport" name="transport" placeholder="Moto, Uber, taxi..." maxlength="80"></div>
-        <div><label for="status">Estado</label><select id="status" name="status"><option value="pendiente">Pendiente</option><option value="pagado">Pagado</option></select></div>
-        <div><label for="origin">Origen</label><input id="origin" name="origin" placeholder="Obra 1" maxlength="120"></div>
-        <div><label for="destination">Destino</label><input id="destination" name="destination" placeholder="Obra 2" maxlength="120"></div>
+        <div><label for="date">Fecha</label><input id="date" name="date" type="date" value="{% if form_values and form_values.date %}{{ form_values.date }}{% else %}{{ form_date }}{% endif %}" required></div>
+        <div><label for="amount">Monto (S/)</label><input id="amount" name="amount" type="number" min="0.01" step="0.01" value="{% if form_values and form_values.amount %}{{ form_values.amount }}{% else %}{{ form_amount }}{% endif %}" placeholder="12.80" required></div>
+        <div><label for="status">Estado</label>
+          <select id="status" name="status">
+            <option value="pendiente" {% if form_values and form_values.status == 'pendiente' or form_status == 'pendiente' %}selected{% endif %}>Pendiente</option>
+            <option value="pagado" {% if form_values and form_values.status == 'pagado' or form_status == 'pagado' %}selected{% endif %}>Pagado</option>
+          </select>
+        </div>
+        <div><label for="notes">Observación</label><input id="notes" name="notes" placeholder="Detalle opcional" maxlength="250" value="{% if form_values and form_values.notes %}{{ form_values.notes }}{% else %}{{ form_notes }}{% endif %}"></div>
         <div class="full"><label for="receipt">Evidencia (Yape, Uber o recibo)</label><input id="receipt" name="receipt" type="file" accept="image/*,.pdf"></div>
-        <div class="full"><label for="notes">Observación</label><input id="notes" name="notes" placeholder="Detalle opcional" maxlength="250"></div>
       </div>
-      <div class="mobility-actions"><a href="{% url 'mobility_preview' %}">Ver tabla para compartir</a><button type="submit">Guardar movilidad</button></div>
+      <div class="mobility-actions">
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <a href="{% url 'mobility_preview' %}">Vista previa</a>
+          {% if expense_to_edit %}<a href="{% url 'mobility_entry' %}">Cancelar</a>{% endif %}
+        </div>
+        <button type="submit">{% if expense_to_edit %}Actualizar{% else %}Guardar{% endif %}</button>
+      </div>
     </form>
   </section>
+
+  {% if expenses %}
+  <section class="mobility-panel" style="margin-top: 18px;">
+    <h2 class="mobility-expenses-heading" style="margin: 0 0 16px; font-size: 1.15rem;">Lista de gastos</h2>
+    <div style="overflow-x:auto;">
+      <table class="mobility-expenses-table" style="width:100%; border-collapse:collapse; min-width:700px;">
+        <thead>
+          <tr>
+            <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Fecha</th>
+            <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Monto</th>
+            <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Estado</th>
+            <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Evidencia</th>
+            <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Observación</th>
+            <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for expense in expenses %}
+          <tr>
+            <td style="padding:10px 12px; border-bottom:1px solid #eef2f5;">{{ expense.date|date:"d/m/Y" }} <small style="color:#65717d;">({{ expense.date|date:"D"|lower }})</small></td>
+            <td style="padding:10px 12px; border-bottom:1px solid #eef2f5;">S/ {{ expense.amount|floatformat:"2u" }}</td>
+            <td style="padding:10px 12px; border-bottom:1px solid #eef2f5;">{{ expense.get_status_display }}</td>
+            <td style="padding:10px 12px; border-bottom:1px solid #eef2f5;">{% if expense.receipt %}<a href="{% url 'mobility_receipt' expense.id %}?from=entry">Ver</a>{% else %}-{% endif %}</td>
+            <td style="padding:10px 12px; border-bottom:1px solid #eef2f5;">{{ expense.notes|default:"-" }}</td>
+            <td style="padding:10px 12px; border-bottom:1px solid #eef2f5; white-space:nowrap;">
+              <a href="{% url 'mobility_entry' %}?edit={{ expense.id }}">Editar</a>
+              <form method="post" style="display:inline; margin-left:6px;" onsubmit="return confirm('¿Eliminar este gasto?');">
+                {% csrf_token %}
+                <input type="hidden" name="expense_id" value="{{ expense.id }}">
+                <input type="hidden" name="action" value="delete">
+                <button type="submit" style="border:0; background:none; padding:0; color:#a32020; cursor:pointer;">Eliminar</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
 </main>
 {% endblock %}
 {% block scripts %}{% endblock %}

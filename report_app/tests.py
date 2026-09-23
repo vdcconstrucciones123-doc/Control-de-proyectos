@@ -115,9 +115,6 @@ class MobilityViewTests(TestCase):
         response = self.client.post(reverse("mobility_entry"), {
             "date": "2026-08-10",
             "amount": "12.80",
-            "transport": "Moto",
-            "origin": "Obra A",
-            "destination": "Obra B",
             "status": "pendiente",
             "receipt": receipt,
         })
@@ -125,8 +122,25 @@ class MobilityViewTests(TestCase):
         self.assertRedirects(response, reverse("mobility_entry"))
         expense = MobilityExpense.objects.get()
         self.assertEqual(expense.amount, Decimal("12.80"))
-        self.assertEqual(expense.destination, "Obra B")
+        self.assertEqual(expense.transport, "")
+        self.assertEqual(expense.origin, "")
+        self.assertEqual(expense.destination, "")
         self.assertTrue(expense.receipt.name)
+
+    def test_public_form_has_no_mobility_origin_destination_fields(self):
+        response = self.client.get(reverse("mobility_entry"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Movilidad")
+        self.assertNotContains(response, "Origen")
+        self.assertNotContains(response, "Destino")
+
+    def test_preview_is_compact_and_has_no_entry_link(self):
+        response = self.client.get(reverse("mobility_preview"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Ingresar movilidad")
+        self.assertContains(response, "Control de movilidad")
 
     def test_preview_shows_paid_pending_and_total(self):
         MobilityExpense.objects.create(date="2026-08-10", amount="12.80", status=MobilityExpense.STATUS_PAID)
@@ -137,6 +151,127 @@ class MobilityViewTests(TestCase):
         self.assertContains(response, "S/ 21.00")
         self.assertContains(response, "S/ 12.80")
         self.assertContains(response, "S/ 8.20")
+
+    def test_preview_includes_receipt_link_for_verification(self):
+        receipt = SimpleUploadedFile("yape.png", b"fake-image", content_type="image/png")
+        expense = MobilityExpense.objects.create(
+            date="2026-08-10",
+            amount="12.80",
+            status=MobilityExpense.STATUS_PENDING,
+            receipt=receipt,
+        )
+
+        response = self.client.get(reverse("mobility_preview"))
+
+        self.assertContains(response, "Evidencia")
+        self.assertContains(response, reverse("mobility_receipt", args=[expense.id]))
+
+    def test_dates_show_weekday_abbreviation(self):
+        MobilityExpense.objects.create(
+            date="2026-08-10",
+            amount="12.80",
+            status=MobilityExpense.STATUS_PENDING,
+        )
+
+        entry_response = self.client.get(reverse("mobility_entry"))
+        preview_response = self.client.get(reverse("mobility_preview"))
+
+        self.assertContains(entry_response, "(lun)")
+        self.assertContains(preview_response, "(lun)")
+
+    def test_existing_mobility_can_be_deleted_from_entry_list(self):
+        expense = MobilityExpense.objects.create(
+            date="2026-08-10",
+            amount="12.80",
+            status=MobilityExpense.STATUS_PENDING,
+        )
+
+        response = self.client.post(reverse("mobility_entry"), {
+            "expense_id": expense.id,
+            "action": "delete",
+        })
+
+        self.assertRedirects(response, reverse("mobility_entry"))
+        self.assertFalse(MobilityExpense.objects.filter(pk=expense.id).exists())
+
+    def test_editing_existing_mobility_updates_the_same_record(self):
+        receipt = SimpleUploadedFile("older.png", b"old-bytes", content_type="image/png")
+        expense = MobilityExpense.objects.create(
+            date="2026-08-10",
+            amount="12.80",
+            status=MobilityExpense.STATUS_PENDING,
+            notes="Antes",
+            receipt=receipt,
+        )
+
+        response = self.client.post(reverse("mobility_entry"), {
+            "expense_id": expense.id,
+            "date": "2026-08-12",
+            "amount": "45.50",
+            "status": MobilityExpense.STATUS_PAID,
+            "notes": "Actualizado",
+        })
+
+        self.assertRedirects(response, reverse("mobility_entry"))
+        self.assertEqual(MobilityExpense.objects.count(), 1)
+        expense.refresh_from_db()
+        self.assertEqual(expense.amount, Decimal("45.50"))
+        self.assertEqual(expense.status, MobilityExpense.STATUS_PAID)
+        self.assertEqual(expense.notes, "Actualizado")
+        self.assertTrue(expense.receipt.name)
+
+    def test_edit_form_displays_saved_amount(self):
+        expense = MobilityExpense.objects.create(
+            date="2026-08-10",
+            amount="12.80",
+            status=MobilityExpense.STATUS_PENDING,
+        )
+
+        response = self.client.get(reverse("mobility_entry") + f"?edit={expense.id}")
+
+        self.assertContains(response, 'id="amount"')
+        self.assertContains(response, 'value="12.80"')
+
+    def test_cancel_button_only_appears_while_editing(self):
+        expense = MobilityExpense.objects.create(
+            date="2026-08-10",
+            amount="12.80",
+            status=MobilityExpense.STATUS_PENDING,
+        )
+
+        edit_response = self.client.get(reverse("mobility_entry") + f"?edit={expense.id}")
+        new_response = self.client.get(reverse("mobility_entry"))
+
+        self.assertContains(edit_response, "Cancelar")
+        self.assertNotContains(new_response, "Cancelar")
+
+    def test_receipt_view_has_return_link(self):
+        receipt = SimpleUploadedFile("yape.png", b"fake-image", content_type="image/png")
+        expense = MobilityExpense.objects.create(
+            date="2026-08-10",
+            amount="12.80",
+            status=MobilityExpense.STATUS_PENDING,
+            receipt=receipt,
+        )
+
+        response = self.client.get(reverse("mobility_receipt", args=[expense.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Regresar")
+        self.assertContains(response, expense.receipt.url)
+
+    def test_receipt_view_returns_to_preview_when_opened_from_preview(self):
+        receipt = SimpleUploadedFile("yape.png", b"fake-image", content_type="image/png")
+        expense = MobilityExpense.objects.create(
+            date="2026-08-10",
+            amount="12.80",
+            status=MobilityExpense.STATUS_PENDING,
+            receipt=receipt,
+        )
+
+        response = self.client.get(reverse("mobility_receipt", args=[expense.id]) + "?from=preview")
+
+        self.assertContains(response, f'href="{reverse("mobility_preview")}"')
 
 
 class AdminBootstrapCommandTests(TestCase):
