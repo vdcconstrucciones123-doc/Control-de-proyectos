@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.models import User
 from django.utils import timezone
 
-from .models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportProject, SiteBranding, UserProfile
+from .models import EntryImage, MobilityExpense, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportProject, SiteBranding, UserProfile
 
 
 class UserProfileInline(admin.StackedInline):
@@ -111,3 +111,10 @@ class ReportEntryAdmin(admin.ModelAdmin):
 @admin.register(EntryImage)
 class EntryImageAdmin(admin.ModelAdmin):
     list_display = ("id", "entry", "sort_order", "created_at")
+
+
+@admin.register(MobilityExpense)
+class MobilityExpenseAdmin(admin.ModelAdmin):
+    list_display = ("date", "amount", "transport", "origin", "destination", "status")
+    list_filter = ("status", "date")
+    search_fields = ("transport", "origin", "destination", "notes")

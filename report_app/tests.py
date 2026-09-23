@@ -1,5 +1,6 @@
 import os
 import tempfile
+from decimal import Decimal
 
 from django.core.management import call_command
 from django.test import TestCase
@@ -8,7 +9,7 @@ from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
-from report_app.models import EntryImage, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportMembership, ReportProject, UserProfile
+from report_app.models import EntryImage, MobilityExpense, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportMembership, ReportProject, UserProfile
 
 
 class HomeViewTests(TestCase):
@@ -101,6 +102,41 @@ class AuthViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "pendiente de aprobación")
+
+
+class MobilityViewTests(TestCase):
+    def test_public_mobility_pages_do_not_require_login(self):
+        self.assertEqual(self.client.get(reverse("mobility_entry")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("mobility_preview")).status_code, 200)
+
+    def test_public_mobility_entry_is_saved_with_receipt(self):
+        receipt = SimpleUploadedFile("yape.png", b"fake-image", content_type="image/png")
+
+        response = self.client.post(reverse("mobility_entry"), {
+            "date": "2026-08-10",
+            "amount": "12.80",
+            "transport": "Moto",
+            "origin": "Obra A",
+            "destination": "Obra B",
+            "status": "pendiente",
+            "receipt": receipt,
+        })
+
+        self.assertRedirects(response, reverse("mobility_entry"))
+        expense = MobilityExpense.objects.get()
+        self.assertEqual(expense.amount, Decimal("12.80"))
+        self.assertEqual(expense.destination, "Obra B")
+        self.assertTrue(expense.receipt.name)
+
+    def test_preview_shows_paid_pending_and_total(self):
+        MobilityExpense.objects.create(date="2026-08-10", amount="12.80", status=MobilityExpense.STATUS_PAID)
+        MobilityExpense.objects.create(date="2026-08-11", amount="8.20", status=MobilityExpense.STATUS_PENDING)
+
+        response = self.client.get(reverse("mobility_preview"))
+
+        self.assertContains(response, "S/ 21.00")
+        self.assertContains(response, "S/ 12.80")
+        self.assertContains(response, "S/ 8.20")
 
 
 class AdminBootstrapCommandTests(TestCase):

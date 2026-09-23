@@ -41,6 +41,10 @@ def profile_image_upload_to(instance, filename):
     return _user_folder(instance.user, "perfil") + filename
 
 
+def mobility_receipt_upload_to(instance, filename):
+    return f"movilidad/{instance.date:%Y/%m}/" + filename
+
+
 class ReportProject(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="owned_projects")
     company_name = models.CharField(max_length=200, default="VDC CONSTRUCCIONES SAC")
@@ -230,6 +234,32 @@ class SiteBranding(models.Model):
 
     def __str__(self):
         return self.site_name or "Branding del sitio"
+
+
+class MobilityExpense(models.Model):
+    STATUS_PENDING = "pendiente"
+    STATUS_PAID = "pagado"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pendiente"),
+        (STATUS_PAID, "Pagado"),
+    ]
+
+    date = models.DateField("fecha")
+    amount = models.DecimalField("monto", max_digits=10, decimal_places=2)
+    transport = models.CharField("movilidad", max_length=80, blank=True)
+    origin = models.CharField("origen", max_length=120, blank=True)
+    destination = models.CharField("destino", max_length=120, blank=True)
+    status = models.CharField("estado", max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    receipt = models.FileField("evidencia", upload_to=mobility_receipt_upload_to, blank=True, null=True)
+    notes = models.CharField("observación", max_length=250, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["date", "id"]
+
+    def __str__(self):
+        return f"{self.date} · S/ {self.amount}"
 
 
 class UserProfile(models.Model):

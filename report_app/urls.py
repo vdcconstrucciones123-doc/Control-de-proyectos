@@ -3,6 +3,8 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path("ingresarmovilidad", views.mobility_expenses, name="mobility_entry"),
+    path("vistaprevia", views.mobility_preview, name="mobility_preview"),
     path("acceso/", views.CustomLoginView.as_view(), name="login"),
     path("salir/", auth_views.LogoutView.as_view(), name="logout"),
     path("registro/", views.register, name="register"),

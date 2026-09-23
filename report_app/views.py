@@ -1,5 +1,6 @@
 import json
 import logging
+from decimal import Decimal, InvalidOperation
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode
@@ -21,6 +22,7 @@ from django.views.decorators.http import require_http_methods
 from .forms import ProjectForm, ReportMetaForm, ReportTypeForm, SignUpForm
 from .models import (
     EntryImage,
+    MobilityExpense,
     ProjectMembership,
     ProjectPlan,
     ProjectPlanMarker,
@@ -37,6 +39,47 @@ ROLE_LABELS = dict(ProjectMembership.ROLE_CHOICES)
 PROGRESS_ENTRY_STATUSES = {"En proceso", "Terminado", "Pendiente", "Observado"}
 INCIDENT_ENTRY_STATUSES = {"Abierto", "Cerrado", "Borrador"}
 logger = logging.getLogger(__name__)
+
+
+def mobility_expenses(request):
+    expenses = MobilityExpense.objects.all()
+    if request.method == "POST":
+        date = _coerce_date(request.POST.get("date"))
+        amount_text = (request.POST.get("amount") or "").replace(",", ".").strip()
+        try:
+            amount = Decimal(amount_text)
+        except InvalidOperation:
+            amount = Decimal("0")
+        if not date or amount <= 0:
+            return render(request, "report_app/mobility_entry.html", {
+                "expenses": expenses,
+                "error": "Ingresa una fecha y un monto mayor que cero.",
+            }, status=400)
+        MobilityExpense.objects.create(
+            date=date,
+            amount=amount,
+            transport=(request.POST.get("transport") or "").strip(),
+            origin=(request.POST.get("origin") or "").strip(),
+            destination=(request.POST.get("destination") or "").strip(),
+            status=request.POST.get("status") if request.POST.get("status") in dict(MobilityExpense.STATUS_CHOICES) else MobilityExpense.STATUS_PENDING,
+            receipt=request.FILES.get("receipt"),
+            notes=(request.POST.get("notes") or "").strip(),
+        )
+        return redirect("mobility_entry")
+    return render(request, "report_app/mobility_entry.html", {
+        "expenses": expenses,
+        "total": sum((expense.amount for expense in expenses), Decimal("0")),
+    })
+
+
+def mobility_preview(request):
+    expenses = MobilityExpense.objects.all()
+    return render(request, "report_app/mobility_preview.html", {
+        "expenses": expenses,
+        "total": sum((expense.amount for expense in expenses), Decimal("0")),
+        "total_paid": sum((expense.amount for expense in expenses if expense.status == MobilityExpense.STATUS_PAID), Decimal("0")),
+        "total_pending": sum((expense.amount for expense in expenses if expense.status == MobilityExpense.STATUS_PENDING), Decimal("0")),
+    })
 
 
 def _project_queryset_for_user(user):
