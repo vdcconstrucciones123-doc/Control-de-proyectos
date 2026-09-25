@@ -143,14 +143,44 @@ class MobilityViewTests(TestCase):
         self.assertContains(response, "Control de movilidad")
 
     def test_preview_shows_paid_pending_and_total(self):
-        MobilityExpense.objects.create(date="2026-08-10", amount="12.80", status=MobilityExpense.STATUS_PAID)
-        MobilityExpense.objects.create(date="2026-08-11", amount="8.20", status=MobilityExpense.STATUS_PENDING)
+        MobilityExpense.objects.create(date="2026-08-10", amount="12.80", status=MobilityExpense.STATUS_PAID, paid_amount="12.80")
+        MobilityExpense.objects.create(date="2026-08-11", amount="8.20", status=MobilityExpense.STATUS_PENDING, paid_amount="0.00")
 
         response = self.client.get(reverse("mobility_preview"))
 
         self.assertContains(response, "S/ 21.00")
         self.assertContains(response, "S/ 12.80")
         self.assertContains(response, "S/ 8.20")
+
+    def test_partial_payment_is_applied_to_oldest_pending_expenses(self):
+        first = MobilityExpense.objects.create(date="2026-08-10", amount="12.80", status=MobilityExpense.STATUS_PENDING, paid_amount="0.00")
+        second = MobilityExpense.objects.create(date="2026-08-11", amount="12.90", status=MobilityExpense.STATUS_PENDING, paid_amount="0.00")
+        third = MobilityExpense.objects.create(date="2026-08-12", amount="8.30", status=MobilityExpense.STATUS_PENDING, paid_amount="0.00")
+
+        response = self.client.post(reverse("mobility_entry"), {
+            "payment_amount": "25.00",
+        })
+
+        self.assertRedirects(response, reverse("mobility_entry"))
+        first.refresh_from_db()
+        second.refresh_from_db()
+        third.refresh_from_db()
+        self.assertEqual(first.paid_amount, Decimal("12.80"))
+        self.assertEqual(first.status, MobilityExpense.STATUS_PAID)
+        self.assertEqual(second.paid_amount, Decimal("12.20"))
+        self.assertEqual(second.status, MobilityExpense.STATUS_PENDING)
+        self.assertEqual(third.paid_amount, Decimal("0.00"))
+        self.assertEqual(third.status, MobilityExpense.STATUS_PENDING)
+
+    def test_preview_uses_pending_balance_for_due_amounts(self):
+        MobilityExpense.objects.create(date="2026-08-10", amount="12.80", status=MobilityExpense.STATUS_PAID, paid_amount="12.80")
+        MobilityExpense.objects.create(date="2026-08-11", amount="8.20", status=MobilityExpense.STATUS_PENDING, paid_amount="2.00")
+
+        response = self.client.get(reverse("mobility_preview"))
+
+        self.assertContains(response, "S/ 21.00")
+        self.assertContains(response, "S/ 12.80")
+        self.assertContains(response, "S/ 6.20")
 
     def test_preview_includes_receipt_link_for_verification(self):
         receipt = SimpleUploadedFile("yape.png", b"fake-image", content_type="image/png")

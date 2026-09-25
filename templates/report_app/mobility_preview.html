@@ -51,7 +51,9 @@
       <thead>
         <tr>
           <th>Fecha</th>
-          <th>S/</th>
+          <th>Total</th>
+          <th>Pagado</th>
+          <th>Pendiente</th>
           <th>Estado</th>
           <th>Evidencia</th>
         </tr>
@@ -60,7 +62,9 @@
         {% for expense in expenses %}
         <tr>
           <td>{{ expense.date|date:"d/m/Y" }} <small style="color:#65717d;">({{ expense.date|date:"D"|lower }})</small></td>
-          <td>{{ expense.amount|floatformat:"2u" }}</td>
+          <td>S/ {{ expense.amount|floatformat:"2u" }}</td>
+          <td>S/ {{ expense.paid_amount|floatformat:"2u" }}</td>
+          <td>S/ {{ expense.due_amount|floatformat:"2u" }}</td>
           <td class="status status-{{ expense.status }}">{{ expense.get_status_display }}</td>
           <td>{% if expense.receipt %}<a href="{% url 'mobility_receipt' expense.id %}?from=preview">Ver</a>{% else %}-{% endif %}</td>
         </tr>

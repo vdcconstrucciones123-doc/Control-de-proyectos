@@ -252,6 +252,7 @@ class MobilityExpense(models.Model):
 
     date = models.DateField("fecha")
     amount = models.DecimalField("monto", max_digits=10, decimal_places=2)
+    paid_amount = models.DecimalField("pagado", max_digits=10, decimal_places=2, default=0)
     transport = models.CharField("movilidad", max_length=80, blank=True)
     origin = models.CharField("origen", max_length=120, blank=True)
     destination = models.CharField("destino", max_length=120, blank=True)
@@ -263,6 +264,19 @@ class MobilityExpense(models.Model):
 
     class Meta:
         ordering = ["date", "id"]
+
+    @property
+    def due_amount(self):
+        return max(self.amount - self.paid_amount, 0)
+
+    def sync_status_from_payment(self):
+        self.paid_amount = max(self.paid_amount, 0)
+        if self.paid_amount >= self.amount:
+            self.paid_amount = self.amount
+            self.status = self.STATUS_PAID
+        else:
+            self.status = self.STATUS_PENDING
+        return self.status
 
     def __str__(self):
         return f"{self.date} · S/ {self.amount}"

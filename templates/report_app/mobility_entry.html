@@ -31,8 +31,8 @@
     .mobility-actions > div { display: flex; gap: 4px !important; flex-wrap: wrap; }
     .mobility-actions a, .mobility-actions button { font-size: .7rem; padding: 6px 7px; }
     .mobility-expenses-heading { font-size: .95rem !important; margin-bottom: 10px !important; }
-    .mobility-expenses-table { min-width: 570px !important; font-size: .72rem; }
-    .mobility-expenses-table th, .mobility-expenses-table td { padding: 6px 7px !important; }
+    .mobility-expenses-table { min-width: 520px !important; font-size: .68rem; }
+    .mobility-expenses-table th, .mobility-expenses-table td { padding: 5px 6px !important; }
   }
 </style>
 {% endblock %}
@@ -69,6 +69,23 @@
     </form>
   </section>
 
+  <section class="mobility-panel" style="margin-top: 18px;">
+    <h2 class="mobility-expenses-heading" style="margin: 0 0 16px; font-size: 1.15rem;">Abonar pago</h2>
+    <form method="post" style="display:flex; gap:12px; align-items:end; flex-wrap:wrap;">
+      {% csrf_token %}
+      <div style="min-width: 220px; flex:1;">
+        <label for="payment_amount" style="display:block; margin-bottom:6px; font-weight:700; color:#344452;">Monto del pago (S/)</label>
+        <input id="payment_amount" name="payment_amount" type="number" min="0.01" step="0.01" placeholder="100.00" style="width:100%; border:1px solid #cbd5dc; border-radius:6px; padding:10px 12px;">
+      </div>
+      <button type="submit" style="border:0; background:#1f566b; color:white; font-weight:700; border-radius:6px; padding:10px 16px;">Aplicar abono</button>
+    </form>
+    <div style="margin-top:12px; display:flex; gap:12px; flex-wrap:wrap; color:#456; font-size:.9rem;">
+      <span><strong>Total:</strong> S/ {{ total|floatformat:"2u" }}</span>
+      <span><strong>Pagado:</strong> S/ {{ total_paid|floatformat:"2u" }}</span>
+      <span><strong>Pendiente:</strong> S/ {{ total_pending|floatformat:"2u" }}</span>
+    </div>
+  </section>
+
   {% if expenses %}
   <section class="mobility-panel" style="margin-top: 18px;">
     <h2 class="mobility-expenses-heading" style="margin: 0 0 16px; font-size: 1.15rem;">Lista de gastos</h2>
@@ -79,6 +96,8 @@
             <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Fecha</th>
             <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Monto</th>
             <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Estado</th>
+            <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Pagado</th>
+            <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Pendiente</th>
             <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Evidencia</th>
             <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Observación</th>
             <th style="padding:10px 12px; text-align:left; border-bottom:1px solid #e7ecef;">Acción</th>
@@ -90,6 +109,8 @@
             <td style="padding:10px 12px; border-bottom:1px solid #eef2f5;">{{ expense.date|date:"d/m/Y" }} <small style="color:#65717d;">({{ expense.date|date:"D"|lower }})</small></td>
             <td style="padding:10px 12px; border-bottom:1px solid #eef2f5;">S/ {{ expense.amount|floatformat:"2u" }}</td>
             <td style="padding:10px 12px; border-bottom:1px solid #eef2f5;">{{ expense.get_status_display }}</td>
+            <td style="padding:10px 12px; border-bottom:1px solid #eef2f5;">S/ {{ expense.paid_amount|floatformat:"2u" }}</td>
+            <td style="padding:10px 12px; border-bottom:1px solid #eef2f5;">S/ {{ expense.due_amount|floatformat:"2u" }}</td>
             <td style="padding:10px 12px; border-bottom:1px solid #eef2f5;">{% if expense.receipt %}<a href="{% url 'mobility_receipt' expense.id %}?from=entry">Ver</a>{% else %}-{% endif %}</td>
             <td style="padding:10px 12px; border-bottom:1px solid #eef2f5;">{{ expense.notes|default:"-" }}</td>
             <td style="padding:10px 12px; border-bottom:1px solid #eef2f5; white-space:nowrap;">

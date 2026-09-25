@@ -41,6 +41,40 @@ INCIDENT_ENTRY_STATUSES = {"Abierto", "Cerrado", "Borrador"}
 logger = logging.getLogger(__name__)
 
 
+def _coerce_decimal(value):
+    if value is None:
+        return Decimal("0")
+    try:
+        return Decimal(str(value).replace(",", ".").strip())
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0")
+
+
+def _apply_partial_payment(payment_amount):
+    payment_total = _coerce_decimal(payment_amount)
+    if payment_total <= 0:
+        raise ValueError("El abono debe ser mayor a cero.")
+
+    remaining = payment_total
+    expenses = list(MobilityExpense.objects.all().order_by("date", "id"))
+    for expense in expenses:
+        if remaining <= 0:
+            break
+        if expense.amount <= expense.paid_amount:
+            expense.sync_status_from_payment()
+            expense.save(update_fields=["paid_amount", "status", "updated_at"])
+            continue
+
+        available = expense.amount - expense.paid_amount
+        applied = min(remaining, available)
+        expense.paid_amount += applied
+        remaining -= applied
+        expense.sync_status_from_payment()
+        expense.save(update_fields=["paid_amount", "status", "updated_at"])
+
+    return payment_total - remaining
+
+
 def mobility_expenses(request):
     expenses = MobilityExpense.objects.all()
     editing_id = request.GET.get("edit") or request.POST.get("expense_id")
@@ -51,6 +85,19 @@ def mobility_expenses(request):
     form_values = request.POST if request.method == "POST" else None
 
     if request.method == "POST":
+        payment_amount_value = (request.POST.get("payment_amount") or "").strip()
+        if payment_amount_value:
+            try:
+                _apply_partial_payment(payment_amount_value)
+            except ValueError as exc:
+                return render(request, "report_app/mobility_entry.html", {
+                    "expenses": expenses,
+                    "expense_to_edit": expense_to_edit,
+                    "form_values": form_values,
+                    "error": str(exc),
+                }, status=400)
+            return redirect("mobility_entry")
+
         if request.POST.get("action") == "delete":
             expense_to_delete = get_object_or_404(MobilityExpense, pk=request.POST.get("expense_id"))
             expense_to_delete.delete()
@@ -70,13 +117,16 @@ def mobility_expenses(request):
                 "error": "Ingresa una fecha y un monto mayor que cero.",
             }, status=400)
 
+        selected_status = request.POST.get("status") if request.POST.get("status") in dict(MobilityExpense.STATUS_CHOICES) else MobilityExpense.STATUS_PENDING
+        current_paid = expense_to_edit.paid_amount if expense_to_edit else Decimal("0")
         payload = {
             "date": date,
             "amount": amount,
+            "paid_amount": amount if selected_status == MobilityExpense.STATUS_PAID else min(current_paid, amount),
             "transport": "",
             "origin": "",
             "destination": "",
-            "status": request.POST.get("status") if request.POST.get("status") in dict(MobilityExpense.STATUS_CHOICES) else MobilityExpense.STATUS_PENDING,
+            "status": selected_status,
             "notes": (request.POST.get("notes") or "").strip(),
         }
         receipt = request.FILES.get("receipt")
@@ -86,9 +136,12 @@ def mobility_expenses(request):
         if expense_to_edit:
             for key, value in payload.items():
                 setattr(expense_to_edit, key, value)
+            expense_to_edit.sync_status_from_payment()
             expense_to_edit.save()
         else:
-            MobilityExpense.objects.create(**payload)
+            expense = MobilityExpense.objects.create(**payload)
+            expense.sync_status_from_payment()
+            expense.save(update_fields=["paid_amount", "status", "updated_at"])
         return redirect("mobility_entry")
 
     return render(request, "report_app/mobility_entry.html", {
@@ -100,16 +153,22 @@ def mobility_expenses(request):
         "form_status": expense_to_edit.status if expense_to_edit else "",
         "form_notes": expense_to_edit.notes if expense_to_edit else "",
         "total": sum((expense.amount for expense in expenses), Decimal("0")),
+        "total_paid": sum((expense.paid_amount for expense in expenses), Decimal("0")),
+        "total_pending": sum((expense.due_amount for expense in expenses), Decimal("0")),
     })
 
 
 def mobility_preview(request):
-    expenses = MobilityExpense.objects.all()
+    expenses = MobilityExpense.objects.all().order_by("date", "id")
+    for expense in expenses:
+        expense.sync_status_from_payment()
+        if expense.pk:
+            expense.save(update_fields=["paid_amount", "status", "updated_at"])
     return render(request, "report_app/mobility_preview.html", {
         "expenses": expenses,
         "total": sum((expense.amount for expense in expenses), Decimal("0")),
-        "total_paid": sum((expense.amount for expense in expenses if expense.status == MobilityExpense.STATUS_PAID), Decimal("0")),
-        "total_pending": sum((expense.amount for expense in expenses if expense.status == MobilityExpense.STATUS_PENDING), Decimal("0")),
+        "total_paid": sum((expense.paid_amount for expense in expenses), Decimal("0")),
+        "total_pending": sum((expense.due_amount for expense in expenses), Decimal("0")),
         "compact": True,
     })
 
