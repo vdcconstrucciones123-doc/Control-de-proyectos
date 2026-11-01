@@ -8,6 +8,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-dev-key-for-site-audit")
 DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
+ONLYOFFICE_DOCUMENT_SERVER_URL = os.getenv("ONLYOFFICE_DOCUMENT_SERVER_URL", "").strip().rstrip("/")
+ONLYOFFICE_JWT_SECRET = os.getenv("ONLYOFFICE_JWT_SECRET", "").strip()
 
 default_allowed_hosts = ["127.0.0.1", "localhost"]
 render_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME")

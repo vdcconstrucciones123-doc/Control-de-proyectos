@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>Firma de acta de materiales</title>
+  <style>
+    :root { color-scheme: light; font-family: Arial, sans-serif; color: #172033; background: #eef3f8; }
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; margin: 0; padding: 24px 14px; background: radial-gradient(ellipse at top, #f8fbff 0, #eef3f8 65%); }
+    main { width: min(100%, 560px); margin: 0 auto; }
+    .card { margin-bottom: 11px; padding: 17px 19px; border: 1px solid #dbe4ef; border-radius: 12px; background: #fff; box-shadow: 0 6px 18px rgb(15 35 65 / 5%); }
+    .access-hero { padding: 18px 20px; border-top: 3px solid #28599c; }
+    h1 { margin: 0 0 8px; color: #1e3a8a; font-size: clamp(1.25rem, 4vw, 1.6rem); font-weight: 750; letter-spacing: -.025em; }
+    h2 { margin: 0 0 14px; font-size: 1.05rem; font-weight: 700; }
+    p { margin: 0 0 12px; line-height: 1.5; }
+    .muted { color: #607087; font-size: .9rem; }
+    .access-hero > p:last-child { max-width: 52ch; margin-bottom: 0; }
+    .access-form-card { padding: 17px 19px; }
+    .access-form-card h2 { margin-bottom: 10px; }
+    .reauth-responsible { margin: 0 0 12px; padding: 9px 11px; border: 1px solid #dce7f5; border-radius: 8px; background: #f5f8fc; }
+    label { display: block; margin: 11px 0 5px; color: #34445a; font-size: .84rem; font-weight: 700; }
+    input, select { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #172033; font: inherit; }
+    input:focus, select:focus { border-color: #4b79b9; outline: 3px solid rgb(40 89 156 / 13%); }
+    button, .button { display: inline-flex; min-height: 42px; align-items: center; justify-content: center; padding: 9px 18px; border: 0; border-radius: 8px; background: #28599c; color: white; font: inherit; font-weight: 700; text-decoration: none; cursor: pointer; transition: background .15s ease, transform .15s ease; }
+    button:hover, .button:hover { background: #1e477e; color: #fff; }
+    button:active, .button:active { transform: translateY(1px); }
+    button.secondary { border: 1px solid #cbd5e1; background: white; color: #334155; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    .actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
+    .access-form-card .actions { margin-top: 14px; }
+    .alert { padding: 11px 13px; border: 1px solid #fecaca; border-radius: 8px; background: #fef2f2; color: #991b1b; }
+    .status-list { display: grid; gap: 9px; margin: 14px 0 0; padding: 0; list-style: none; }
+    .status-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 8px; }
+    .status-ok { color: #166534; font-weight: 700; }
+    .status-wait { color: #92400e; }
+    .complete-card { display: flex; align-items: flex-start; gap: 12px; border-color: #cce8d7; background: linear-gradient(135deg, #f3fbf6, #fff 82%); }
+    .complete-icon { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border-radius: 50%; background: #e2f5e9; color: #17653a; font-size: 19px; font-weight: 800; }
+    .complete-card h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 0 0 4px; font-size: .98rem; }
+    .complete-badge { display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 999px; background: #e2f5e9; color: #17653a; font-size: .66rem; font-weight: 800; letter-spacing: .03em; }
+    .complete-card p { margin: 0; color: #526579; font-size: .84rem; line-height: 1.4; }
+    .materials { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    .materials th, .materials td { padding: 8px; border: 1px solid #cbd5e1; text-align: left; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .materials th { background: #28599c; color: white; }
+    .materials td.number, .materials td.quantity { text-align: center; }
+    .signature-canvas { display: block; width: 100%; height: 170px; border: 1px dashed #94a3b8; border-radius: 7px; background: white; touch-action: none; cursor: crosshair; }
+    @media (max-width: 520px) {
+      body { padding: 14px 9px; }
+      main { width: min(100%, 430px); }
+      .card { margin-bottom: 9px; padding: 14px; border-radius: 11px; }
+      .access-hero { padding: 15px 16px; }
+      .access-form-card { padding: 14px 16px; }
+      .access-form-card .actions button { width: 100%; }
+      .complete-card { gap: 9px; padding: 12px 14px; }
+      .complete-icon { width: 30px; height: 30px; flex-basis: 30px; font-size: 17px; }
+      .complete-card h2 { font-size: .9rem; }
+      .complete-card p { font-size: .8rem; }
+      .muted { font-size: .86rem; }
+      .materials { font-size: .78rem; }
+      .materials th, .materials td { padding: 5px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card access-hero">
+      <h1>{% if signer_key %}Acta de recepción de materiales{% else %}Acceso al acta de materiales{% endif %}</h1>
+      {% if signer_key %}
+        <div class="muted">{{ project.project_name|default:"Proyecto" }}{% if receipt.act_number %} · Acta {{ receipt.act_number }}{% endif %}</div>
+        <p class="muted">Revisa el acta. La firma solo se habilita cuando corresponde tu turno.</p>
+      {% else %}
+        {% if reauth_required %}
+          <p class="muted">Vuelve a ingresar la contraseña de {{ reauth_signer_label }} para continuar. Tus datos de nombre, DNI y cargo se conservaron.</p>
+        {% else %}
+          <p class="muted">Ingresa tu responsable, contraseña, nombre, DNI y cargo. Después podrás ver el acta y firmar cuando sea tu turno.</p>
+        {% endif %}
+      {% endif %}
+      {% if signer_key %}
+      <ol class="status-list">
+        {% for status in signers %}
+          <li>
+            <span>{{ forloop.counter }}. {{ status.label }}</span>
+            {% if status.signed %}
+              <span class="status-ok">Firmado{% if status.signedOn %} · {{ status.signedOn|date:"d/m/Y" }}{% endif %}</span>
+            {% elif status.key == signer_key and signer_waiting_for %}
+              <span class="status-wait">En espera del responsable anterior</span>
+            {% elif status.key == next_signer_key %}
+              <span class="status-wait">Pendiente de firma</span>
+            {% else %}
+              <span class="muted">Pendiente</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+      {% endif %}
+    </section>
+
+    {% if signer_key %}
+    <section class="card access-form-card">
+      <h2>Materiales registrados</h2>
+      {% if entries %}
+        <table class="materials">
+          <thead><tr><th>N.°</th><th>Descripción</th><th>Und.</th><th>Cantidad</th><th>Observaciones</th></tr></thead>
+          <tbody>
+            {% for entry in entries %}
+              <tr>
+                <td class="number">{{ forloop.counter }}</td>
+                <td>{{ entry.item_name }}</td>
+                <td>{{ entry.unit }}</td>
+                <td class="quantity">{{ entry.quantity }}</td>
+                <td>{{ entry.description }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="muted mb-0">Todavía no se han agregado materiales.</p>
+      {% endif %}
+      {% if receipt.observations %}
+        <p><strong>Observaciones de recepción:</strong> {{ receipt.observations|linebreaksbr }}</p>
+      {% endif %}
+      {% if receipt.conformity %}
+        <p><strong>Conformidad:</strong> {{ receipt.get_conformity_display|default:receipt.conformity }}</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if message %}<div class="alert card" role="alert">{{ message }}</div>{% endif %}
+
+    {% if all_signed and not signer_key %}
+      <section class="card complete-card" role="status">
+        <span class="complete-icon" aria-hidden="true">✓</span>
+        <div>
+          <h2><span>Acta completa</span><span class="complete-badge">3 DE 3 FIRMAS</span></h2>
+          <p>Ingresa tu contraseña para abrir el acta y descargar el PDF como imagen de la vista previa.</p>
+        </div>
+      </section>
+    {% endif %}
+
+    {% if not signer_key %}
+      <section class="card access-form-card">
+        <h2>{% if reauth_required %}Continuar al acta{% else %}Ingresa a tu sección{% endif %}</h2>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="authenticate">
+          {% if reauth_required %}
+            <input type="hidden" name="signer" value="{{ identity_input.signer }}">
+            <p class="reauth-responsible"><strong>Responsable</strong><br>{{ reauth_signer_label }}</p>
+          {% else %}
+            <label for="signer">Responsable</label>
+            <select id="signer" name="signer" required>
+              <option value="">Selecciona tu sección</option>
+              <option value="delivered" {% if identity_input.signer == "delivered" %}selected{% endif %}>ENTREGA · Universidad de Lima</option>
+              <option value="verified" {% if identity_input.signer == "verified" %}selected{% endif %}>VALIDA · VDC</option>
+              <option value="received" {% if identity_input.signer == "received" %}selected{% endif %}>RECIBE / VALIDA · COSAPI</option>
+            </select>
+          {% endif %}
+          <label for="password">Contraseña de tu sección</label>
+          <input id="password" name="password" type="password" maxlength="128" autocomplete="current-password" required>
+          {% if not reauth_required %}
+            <label for="signerName">Nombre completo</label>
+            <input id="signerName" name="name" maxlength="200" autocomplete="name" value="{{ identity_input.name|default:'' }}" required>
+            <label for="signerDni">DNI</label>
+            <input id="signerDni" name="dni" maxlength="30" inputmode="numeric" value="{{ identity_input.dni|default:'' }}" required>
+            <label for="signerPosition">Cargo</label>
+            <input id="signerPosition" name="position" maxlength="100" value="{{ identity_input.position|default:'' }}" required>
+          {% endif %}
+          <div class="actions"><button type="submit">Continuar</button></div>
+        </form>
+      </section>
+    {% elif is_signed %}
+      <section class="card">
+        <h2>{{ signer.label }}</h2>
+        <p class="status-ok">Esta sección ya fue firmada. No es posible volver a firmar.</p>
+        <p><strong>Nombre:</strong> {{ signer_name }}<br><strong>DNI:</strong> {{ signer_dni }}<br><strong>Cargo:</strong> {{ signer_position }}</p>
+      </section>
+    {% elif signer_waiting_for %}
+      <section class="card">
+        <h2>{{ signer.label }}</h2>
+        <p>Tu acceso está validado. Podrás firmar cuando termine el responsable anterior: <strong>{{ signer_waiting_for }}</strong>.</p>
+        <p class="muted">Vuelve a cargar este enlace cuando esa firma ya aparezca como completada.</p>
+      </section>
+    {% elif can_sign %}
+      <section class="card">
+        <h2>Firma: {{ signer.label }}</h2>
+        <p>Confirma tus datos. Se guardarán en el acta junto con tu firma:</p>
+        <p><strong>Nombre:</strong> {{ signer_name }}<br><strong>DNI:</strong> {{ signer_dni }}<br><strong>Cargo:</strong> {{ signer_position }}</p>
+        <form id="receiptSignerForm" method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="sign">
+          <input type="hidden" id="signatureData" name="signatureData">
+          <label for="signerSignature">Dibuja tu firma</label>
+          <canvas id="receiptSignatureCanvas" class="signature-canvas" width="900" height="300" aria-label="Área para dibujar la firma"></canvas>
+          <div class="actions">
+            <button type="button" class="secondary" id="clearReceiptSignatureBtn">Limpiar firma</button>
+          </div>
+          <label for="receiptSignatureFile">O inserta una imagen de tu firma (PNG, JPG o WebP; máximo 5 MB)</label>
+          <input id="receiptSignatureFile" name="signature" type="file" accept="image/png,image/jpeg,image/webp">
+          <div class="actions"><button type="submit">Firmar y continuar</button></div>
+        </form>
+      </section>
+    {% endif %}
+
+  </main>
+  <script>
+    (() => {
+      const canvas = document.getElementById('receiptSignatureCanvas');
+      const form = document.getElementById('receiptSignerForm');
+      if (!canvas || !form) return;
+      const context = canvas.getContext('2d');
+      let drawing = false;
+      let hasInk = false;
+      const point = event => {
+        const bounds = canvas.getBoundingClientRect();
+        return {
+          x: (event.clientX - bounds.left) * canvas.width / bounds.width,
+          y: (event.clientY - bounds.top) * canvas.height / bounds.height
+        };
+      };
+      canvas.addEventListener('pointerdown', event => {
+        drawing = true;
+        canvas.setPointerCapture(event.pointerId);
+        const position = point(event);
+        context.beginPath();
+        context.moveTo(position.x, position.y);
+        context.strokeStyle = '#111827';
+        context.lineWidth = 4;
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+        context.beginPath();
+        context.arc(position.x, position.y, context.lineWidth / 2, 0, Math.PI * 2);
+        context.fill();
+        context.beginPath();
+        context.moveTo(position.x, position.y);
+        hasInk = true;
+      });
+      canvas.addEventListener('pointermove', event => {
+        if (!drawing) return;
+        const position = point(event);
+        context.lineTo(position.x, position.y);
+        context.stroke();
+      });
+      const finish = () => { drawing = false; };
+      canvas.addEventListener('pointerup', finish);
+      canvas.addEventListener('pointercancel', finish);
+      document.getElementById('clearReceiptSignatureBtn').addEventListener('click', () => {
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        hasInk = false;
+        document.getElementById('receiptSignatureFile').value = '';
+      });
+      document.getElementById('receiptSignatureFile').addEventListener('change', () => {
+        if (document.getElementById('receiptSignatureFile').files.length) hasInk = true;
+      });
+      form.addEventListener('submit', event => {
+        if (!hasInk) {
+          event.preventDefault();
+          alert('Dibuja o inserta una imagen de tu firma antes de continuar.');
+          return;
+        }
+        if (hasInk && !document.getElementById('receiptSignatureFile').files.length) {
+          document.getElementById('signatureData').value = canvas.toDataURL('image/png');
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -34,6 +34,18 @@ def entry_image_upload_to(instance, filename):
     return _user_folder(instance.entry.report.project.owner, "evidencias") + filename
 
 
+def material_signature_upload_to(instance, filename):
+    return _user_folder(instance.report.project.owner, "firmas-recepcion") + filename
+
+
+def material_receipt_logo_upload_to(instance, filename):
+    return _user_folder(instance.report.project.owner, "logos-recepcion") + filename
+
+
+def material_receipt_photo_upload_to(instance, filename):
+    return _user_folder(instance.receipt.report.project.owner, "fotos-recepcion") + filename
+
+
 def site_logo_upload_to(instance, filename):
     return "sitio/logos/" + filename
 
@@ -134,10 +146,12 @@ class ProjectReport(models.Model):
     TYPE_PROGRESS = "avances"
     TYPE_INCIDENT = "incidencia"
     TYPE_EQUIPMENT = "equipos"
+    TYPE_MATERIAL_RECEIPT = "materiales"
     TYPE_CHOICES = [
         (TYPE_PROGRESS, "Reporte de avances"),
         (TYPE_INCIDENT, "Reporte de incidencia"),
         (TYPE_EQUIPMENT, "Recepción y entrega de equipos"),
+        (TYPE_MATERIAL_RECEIPT, "Recepción de materiales"),
     ]
 
     project = models.ForeignKey(ReportProject, on_delete=models.CASCADE, related_name="reports")
@@ -200,6 +214,8 @@ class ReportEntry(models.Model):
     item_name = models.CharField(max_length=200, blank=True)
     building_location = models.CharField(max_length=120, blank=True)
     quantity = models.PositiveIntegerField(default=1)
+    unit = models.CharField(max_length=40, blank=True)
+    condition = models.CharField(max_length=80, blank=True)
     status = models.CharField(max_length=50)
     incident_date = models.DateField(null=True, blank=True)
     responsible_company = models.CharField(max_length=200, blank=True)
@@ -215,6 +231,56 @@ class ReportEntry(models.Model):
 
     def __str__(self):
         return f"{self.front} · {self.status}"
+
+
+class MaterialReceipt(models.Model):
+    report = models.OneToOneField(ProjectReport, on_delete=models.CASCADE, related_name="material_receipt")
+    act_number = models.CharField(max_length=80, blank=True)
+    receipt_date = models.DateField(null=True, blank=True)
+    supplier = models.CharField(max_length=200, blank=True)
+    delivery_note = models.CharField(max_length=120, blank=True)
+    delivered_by = models.CharField(max_length=200, blank=True)
+    delivered_dni = models.CharField(max_length=30, blank=True)
+    delivered_position = models.CharField(max_length=100, blank=True)
+    received_by = models.CharField(max_length=200, blank=True)
+    received_dni = models.CharField(max_length=30, blank=True)
+    received_position = models.CharField(max_length=100, blank=True)
+    verified_by = models.CharField(max_length=200, blank=True)
+    verified_dni = models.CharField(max_length=30, blank=True)
+    verified_position = models.CharField(max_length=100, blank=True)
+    conformity = models.CharField(max_length=20, blank=True)
+    observations = models.TextField(blank=True)
+    signature_delivered = models.FileField(upload_to=material_signature_upload_to, blank=True, null=True)
+    signature_received = models.FileField(upload_to=material_signature_upload_to, blank=True, null=True)
+    signature_verified = models.FileField(upload_to=material_signature_upload_to, blank=True, null=True)
+    delivered_signed_on = models.DateField(null=True, blank=True)
+    received_signed_on = models.DateField(null=True, blank=True)
+    verified_signed_on = models.DateField(null=True, blank=True)
+    company_logo = models.FileField(upload_to=material_receipt_logo_upload_to, blank=True, null=True)
+    word_document = models.FileField(upload_to="actas-materiales/word/", blank=True, null=True)
+    word_source_hash = models.CharField(max_length=64, blank=True)
+    word_document_key = models.CharField(max_length=64, blank=True)
+    share_token = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    delivered_share_password = models.CharField(max_length=128, blank=True)
+    verified_share_password = models.CharField(max_length=128, blank=True)
+    received_share_password = models.CharField(max_length=128, blank=True)
+    share_access_version = models.PositiveIntegerField(default=1)
+    share_password_failed_attempts = models.PositiveSmallIntegerField(default=0)
+    share_password_locked_until = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Acta de recepción · {self.report}"
+
+
+class MaterialReceiptPhoto(models.Model):
+    receipt = models.ForeignKey(MaterialReceipt, on_delete=models.CASCADE, related_name="photos")
+    image = models.FileField(upload_to=material_receipt_photo_upload_to)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sort_order", "id"]
 
 
 class EntryImage(models.Model):
@@ -382,6 +448,11 @@ def delete_entry_image_on_delete(sender, instance, **kwargs):
     _delete_file(instance.image)
 
 
+@receiver(post_delete, sender=MaterialReceiptPhoto)
+def delete_material_receipt_photo_on_delete(sender, instance, **kwargs):
+    _delete_file(instance.image)
+
+
 @receiver(post_delete, sender=MobilityExpense)
 def delete_mobility_receipt_on_delete(sender, instance, **kwargs):
     _delete_file(instance.receipt)
@@ -394,3 +465,24 @@ def delete_entry_image_on_replace(sender, instance, **kwargs):
     previous = sender.objects.filter(pk=instance.pk).only("image").first()
     if previous and previous.image and previous.image != instance.image:
         _delete_file(previous.image)
+
+
+@receiver(post_delete, sender=MaterialReceipt)
+def delete_material_signatures_on_delete(sender, instance, **kwargs):
+    _delete_file(instance.signature_delivered)
+    _delete_file(instance.signature_received)
+    _delete_file(instance.signature_verified)
+    _delete_file(instance.company_logo)
+
+
+@receiver(pre_save, sender=MaterialReceipt)
+def delete_material_signatures_on_replace(sender, instance, **kwargs):
+    if not instance.pk:
+        return
+    previous = sender.objects.filter(pk=instance.pk).first()
+    if not previous:
+        return
+    for field_name in ("signature_delivered", "signature_received", "signature_verified", "company_logo"):
+        old_file = getattr(previous, field_name)
+        if old_file and old_file != getattr(instance, field_name):
+            _delete_file(old_file)

@@ -1,0 +1,217 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>Acta de entrega de materiales</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="{% static 'report_app/theme.css' %}?v=2">
+  <link rel="stylesheet" href="{% static 'report_app/styles.css' %}?v=133">
+  <style>
+    body { min-height: 100vh; margin: 0; padding: 14px 8px; background: #e9edf3; }
+    .shared-act-toolbar { display: flex; width: min(100%, 210mm); align-items: center; justify-content: flex-end; gap: 8px; margin: 0 auto 10px; }
+    .shared-act-pdf-pending { flex: 0 1 auto; font-size: 7px !important; line-height: 1; white-space: nowrap; }
+    #previewCanvas { width: 100%; display: flex; justify-content: center; overflow: hidden; }
+    #previewScaleShell { flex: 0 0 auto; max-width: 100%; margin: 0 auto; }
+    #reportContainer { margin: 0 auto; }
+    .shared-act-signature-file { display: none; }
+    .shared-act-inserted-signature { display: block; max-width: 100%; max-height: 120px; margin-top: 1rem; object-fit: contain; }
+    .shared-act-observations-save { align-self: flex-start; width: auto; min-height: 0; margin-top: 0; padding: 1px 6px; border-radius: 3px; font-size: 9px; line-height: 1.2; }
+    .shared-act-observations-form { display: flex; flex-direction: column; align-items: flex-start; gap: 1mm; }
+    .shared-act-observations-history { max-width: 100%; padding: 0.5mm 1mm; border-left: 1px solid #9aa8b8; color: #4b5563; font-size: 6pt; line-height: 1.15; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .shared-act-observations-input { box-sizing: border-box; width: 100%; height: 6mm; min-height: 6mm; max-height: 6mm; padding: 0 1mm; font-size: 7pt; line-height: 1.15; resize: none; }
+    @media (max-width: 576px) {
+      body { padding: 4px; }
+      .shared-act-toolbar { gap: 4px; margin-bottom: 4px; }
+      .shared-act-toolbar > .btn,
+      .shared-act-toolbar form > .btn { min-height: 28px; padding: 3px 7px; border-radius: 4px; font-size: 10px; line-height: 1.1; }
+      .shared-act-toolbar.alert { display: block; width: fit-content; max-width: 100%; padding: 4px 7px; border-radius: 4px; font-size: 10px; line-height: 1.2; }
+    }
+    @media print {
+      body { padding: 0; background: #fff; }
+      .shared-act-toolbar, .materials-preview-signature-actions, .shared-act-observations-save, dialog { display: none !important; }
+      #previewCanvas, #previewScaleShell { display: block; width: auto; max-width: none; }
+      #reportContainer { transform: none !important; }
+      .report-container { border: 0; }
+      .report-page { margin: 0; }
+    }
+  </style>
+</head>
+<body data-app-theme="site-audit" data-current-user="shared">
+  <main>
+    <div class="shared-act-toolbar">
+      {% if all_signed %}
+        <button id="downloadSharedReceiptPdfBtn" class="btn btn-outline-primary btn-sm" type="button">Descargar PDF</button>
+      {% else %}
+        <button class="btn btn-outline-secondary btn-sm" type="button" disabled aria-describedby="sharedPdfPending">Descargar PDF</button>
+        <span id="sharedPdfPending" class="shared-act-pdf-pending text-muted" title="Disponible cuando firmen los tres responsables">PDF pendiente: 3 firmas</span>
+      {% endif %}
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="logout">
+        <button class="btn btn-outline-secondary btn-sm" type="submit">Cerrar sesión</button>
+      </form>
+    </div>
+
+    {% if message %}
+      <div class="shared-act-toolbar alert alert-danger" role="alert">{{ message }}</div>
+    {% elif signer_waiting_for %}
+      <div class="shared-act-toolbar alert alert-info" role="status">Tu acceso está validado. Podrás firmar cuando termine {{ signer_waiting_for }}.</div>
+    {% endif %}
+    {% if observations_saved %}
+      <div class="shared-act-toolbar alert alert-success" role="status">Observaciones guardadas en el acta.</div>
+    {% endif %}
+
+    <section id="previewSection" class="preview-only" aria-label="Vista previa del acta compartida">
+      <div id="previewCanvas" class="preview-canvas">
+        <div id="previewScaleShell" class="preview-scale-shell">
+          <div id="reportContainer" class="report-container"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  {% if can_sign %}
+    <dialog id="receiptSignatureDialog" class="material-receipt-signature-dialog" aria-labelledby="receiptSignatureTitle">
+      <form id="receiptSignerForm" method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="sign">
+        <input type="hidden" id="signatureData" name="signatureData">
+        <div class="material-receipt-signature-dialog-header">
+          <div>
+            <h2 id="receiptSignatureTitle">Firma</h2>
+            <p class="mb-0">Agrega la firma dibujándola o insertando una imagen.</p>
+          </div>
+          <button type="button" class="btn-close" aria-label="Cerrar" data-close-signature></button>
+        </div>
+        <div class="material-receipt-signature-tabs" role="tablist" aria-label="Método de firma">
+          <button type="button" class="active" role="tab" aria-selected="true" data-signature-tab="draw">Dibujar firma</button>
+          <button type="button" role="tab" aria-selected="false" data-signature-tab="insert">Insertar firma</button>
+        </div>
+        <section class="material-receipt-signature-panel" role="tabpanel" data-signature-panel="draw">
+          <p>Firma con el mouse, el dedo o un lápiz digital.</p>
+          <canvas id="receiptSignatureCanvas" class="material-receipt-signature-canvas" width="700" height="180" aria-label="Área para dibujar la firma"></canvas>
+          <button id="clearReceiptSignatureBtn" type="button" class="btn btn-outline-secondary btn-sm mt-2">Limpiar</button>
+        </section>
+        <section class="material-receipt-signature-panel d-none" role="tabpanel" data-signature-panel="insert">
+          <p>Selecciona una imagen de tu firma en formato PNG, JPG o WebP (máximo 5 MB).</p>
+          <button id="insertReceiptSignatureBtn" type="button" class="btn btn-outline-primary">Insertar firma</button>
+          <input id="receiptSignatureFile" class="shared-act-signature-file" name="signature" type="file" accept="image/png,image/jpeg,image/webp">
+          <img id="insertedReceiptSignaturePreview" class="shared-act-inserted-signature d-none" alt="Vista previa de la firma que se insertará">
+        </section>
+        <div class="material-receipt-signature-dialog-footer">
+          <div class="d-flex gap-2 ms-auto">
+            <button type="button" class="btn btn-outline-secondary" data-close-signature>Cancelar</button>
+            <button type="submit" class="btn btn-primary">Guardar firma</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+  {% endif %}
+
+  {{ shared_preview|json_script:"sharedReceiptPreviewData" }}
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="{% static 'report_app/app.js' %}?v=184"></script>
+  <script>
+    (() => {
+      const dialog = document.getElementById('receiptSignatureDialog');
+      const form = document.getElementById('receiptSignerForm');
+      const canvas = document.getElementById('receiptSignatureCanvas');
+      if (!dialog || !form || !canvas) return;
+
+      const context = canvas.getContext('2d');
+      const fileInput = document.getElementById('receiptSignatureFile');
+      const signatureData = document.getElementById('signatureData');
+      const insertedPreview = document.getElementById('insertedReceiptSignaturePreview');
+      let drawing = false;
+      let hasInk = false;
+
+      document.addEventListener('click', event => {
+        if (event.target.closest('[data-open-receipt-signature]')) dialog.showModal();
+      });
+      dialog.querySelectorAll('[data-close-signature]').forEach(button => button.addEventListener('click', () => dialog.close()));
+      dialog.querySelectorAll('[data-signature-tab]').forEach(button => button.addEventListener('click', () => {
+        const selectedTab = button.dataset.signatureTab;
+        dialog.querySelectorAll('[data-signature-tab]').forEach(tab => {
+          const active = tab === button;
+          tab.classList.toggle('active', active);
+          tab.setAttribute('aria-selected', String(active));
+        });
+        dialog.querySelectorAll('[data-signature-panel]').forEach(panel => {
+          panel.classList.toggle('d-none', panel.dataset.signaturePanel !== selectedTab);
+        });
+      }));
+
+      const point = event => {
+        const bounds = canvas.getBoundingClientRect();
+        return {
+          x: (event.clientX - bounds.left) * canvas.width / bounds.width,
+          y: (event.clientY - bounds.top) * canvas.height / bounds.height
+        };
+      };
+      canvas.addEventListener('pointerdown', event => {
+        drawing = true;
+        canvas.setPointerCapture(event.pointerId);
+        const position = point(event);
+        context.beginPath();
+        context.arc(position.x, position.y, 2, 0, Math.PI * 2);
+        context.fillStyle = '#111827';
+        context.fill();
+        context.beginPath();
+        context.moveTo(position.x, position.y);
+        context.strokeStyle = '#111827';
+        context.lineWidth = 4;
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+        hasInk = true;
+        fileInput.value = '';
+        insertedPreview.classList.add('d-none');
+      });
+      canvas.addEventListener('pointermove', event => {
+        if (!drawing) return;
+        const position = point(event);
+        context.lineTo(position.x, position.y);
+        context.stroke();
+      });
+      const finishDrawing = () => { drawing = false; };
+      canvas.addEventListener('pointerup', finishDrawing);
+      canvas.addEventListener('pointercancel', finishDrawing);
+      document.getElementById('clearReceiptSignatureBtn').addEventListener('click', () => {
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        hasInk = false;
+        fileInput.value = '';
+        insertedPreview.classList.add('d-none');
+      });
+      document.getElementById('insertReceiptSignatureBtn').addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+          alert('Selecciona una firma PNG, JPG o WebP de hasta 5 MB.');
+          fileInput.value = '';
+          return;
+        }
+        hasInk = true;
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        insertedPreview.src = URL.createObjectURL(file);
+        insertedPreview.classList.remove('d-none');
+      });
+      form.addEventListener('submit', event => {
+        if (!hasInk) {
+          event.preventDefault();
+          alert('Dibuja o inserta una imagen de tu firma antes de continuar.');
+          return;
+        }
+        if (!fileInput.files.length) signatureData.value = canvas.toDataURL('image/png');
+      });
+    })();
+  </script>
+</body>
+</html>

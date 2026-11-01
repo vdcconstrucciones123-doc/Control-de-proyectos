@@ -83,6 +83,7 @@ http://127.0.0.1:8000/
 - `DJANGO_ALLOWED_HOSTS`
 - `DJANGO_CSRF_TRUSTED_ORIGINS`
 - `DATABASE_URL`
+- `ONLYOFFICE_DOCUMENT_SERVER_URL` y `ONLYOFFICE_JWT_SECRET` para habilitar el editor Word del acta de materiales
 - `CLOUDINARY_URL` o alternativamente `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
 - `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD` para crear o actualizar un admin automático en deploy. También se aceptan los nombres alternativos `SUPERUSER_USERNAME`, `SUPERUSER_EMAIL`, `SUPERUSER_PASSWORD`.
 - `ALLOW_DEFAULT_ADMIN=True` si quieres forzar temporalmente un admin por defecto `ADMIN` / `ADMIN` sin definir las variables anteriores
@@ -134,6 +135,20 @@ Para Cloudinary en Render deja configurada una de estas opciones:
 
 El proyecto ya queda listo para usar Cloudinary cuando esas variables existan. Si no están definidas, sigue usando almacenamiento local para archivos de media.
 
+## Editor Word para actas de materiales
+
+El botón **Editar con Word** abre una copia DOCX del acta en ONLYOFFICE Docs. La vista previa, las firmas actuales y la exportación PDF siguen funcionando aparte. El editor requiere un servidor ONLYOFFICE Docs propio o contratado; Render aloja la aplicación Django, no ese servidor.
+
+1. Despliega ONLYOFFICE Docs en un servidor accesible públicamente y habilita JWT en su configuración.
+2. Configura en el servicio Django `ONLYOFFICE_DOCUMENT_SERVER_URL` con la URL HTTPS pública de ONLYOFFICE (sin `/web-apps/...`) y `ONLYOFFICE_JWT_SECRET` con el mismo secreto JWT configurado en ONLYOFFICE.
+3. En el despliegue Blueprint, Render genera el secreto de la aplicación. Copia ese valor desde el panel de Render a la configuración JWT de ONLYOFFICE; nunca lo publiques en el repositorio ni lo envíes por chat.
+4. Comprueba que el servidor ONLYOFFICE pueda acceder por HTTPS a la aplicación Django para descargar los DOCX y enviar los callbacks de guardado.
+5. Despliega la aplicación y ejecuta `python manage.py migrate` (el build de Render también ejecuta las migraciones).
+
+Si las variables no están configuradas, la página explica qué falta configurar y se mantienen disponibles las herramientas actuales. Los cambios hechos en el editor Word se guardan en una copia DOCX; no modifican automáticamente los campos de la vista previa ni las firmas del flujo actual.
+
+Las actas también permiten subir fotos de validación desde el reporte. Se guardan en el acta y se incluyen al final del PDF exportado desde la vista previa en páginas de cuatro fotos (2 × 2); si se suben más de cuatro, se generan páginas adicionales. Las firmas y el encabezado del acta se mantienen en su página existente.
+
 Si quieres que Render te deje creado tu usuario administrador en cada deploy, agrega además estas variables al servicio web:
 
 ```text
@@ -157,4 +172,3 @@ Si estás en local con `DEBUG=True`, o si defines `ALLOW_DEFAULT_ADMIN=True`, el
 ## Nota sobre archivos estáticos antiguos
 
 En la raíz todavía existen `index.html`, `app.js` y `styles.css` de una versión estática previa. La app activa para desarrollo y despliegue es la versión Django.
-

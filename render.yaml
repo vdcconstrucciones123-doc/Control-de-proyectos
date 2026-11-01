@@ -16,6 +16,10 @@ services:
         value: https://site-audit-pro-lite.onrender.com
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: /opt/render/project/.playwright
+      - key: ONLYOFFICE_DOCUMENT_SERVER_URL
+        sync: false
+      - key: ONLYOFFICE_JWT_SECRET
+        generateValue: true
       - key: DATABASE_URL
         fromDatabase:
           name: site-audit-pro-lite-db

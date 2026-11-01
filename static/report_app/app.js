@@ -22,16 +22,20 @@
     'Borrador': 'bg-secondary',
     'Recepción': 'bg-primary',
     'Validación': 'bg-info text-dark',
-    'Entrega': 'bg-success'
+    'Entrega': 'bg-success',
+    'Conforme': 'bg-success',
+    'Dañado': 'bg-danger'
   };
   const PDF_RENDER_SCALE = 1.25;
   const PDF_IMAGE_QUALITY = 0.82;
   const PDF_PAGE_MARGIN_MM = 1.5;
+  let exportPdfModeContext = null;
   const UPLOAD_MAX_DIMENSION = 1800;
   const UPLOAD_IMAGE_QUALITY = 0.8;
   const UPLOAD_FILE_MIME = 'image/jpeg';
   const PROGRESS_STATUSES = ['En proceso', 'Terminado', 'Pendiente', 'Observado'];
   const INCIDENT_STATUSES = ['Abierto', 'Cerrado', 'Borrador'];
+  let sharedReceiptPreview = null;
   let pendingCoverPhotoFile = null;
    let pendingProjectPhotoFile = null;
   let pendingProfilePhotoFile = null;
@@ -66,11 +70,38 @@
   const planPdfCache = new Map();
   let planRenderToken = 0;
   let previewRenderToken = 0;
+  let materialReceiptExtraRows = 0;
+  let materialReceiptExtraRowsReportKey = '';
   let issuePlanPoint = null;
   let pendingProjectPhotoId = null;
   let pendingRemovedEntryImageIds = new Set();
   let pendingEntryPhotoItems = [];
   let photoEditorState = null;
+
+  function emptyMaterialReceipt(){
+    return {
+      actNumber: '',
+      receiptDate: '',
+      supplier: '',
+      deliveryNote: '',
+      deliveredBy: '',
+      deliveredDni: '',
+      deliveredPosition: '',
+      receivedBy: '',
+      receivedDni: '',
+      receivedPosition: '',
+      verifiedBy: '',
+      verifiedDni: '',
+      verifiedPosition: '',
+      conformity: '',
+      observations: '',
+      companyLogo: '',
+      photos: [],
+      shareConfigured: false,
+      signedOn: { delivered: '', received: '', verified: '' },
+      signatures: { delivered: '', received: '', verified: '' }
+    };
+  }
 
   let state = {
     projects: [],
@@ -110,15 +141,26 @@
     editingEntryId: null,
     showIssueForm: false,
     editingProjectInfo: false,
-    editingReportMeta: false
+    editingReportMeta: false,
+    materialReceipt: emptyMaterialReceipt()
   };
 
   function $(id){ return document.getElementById(id); }
   function isEquipmentReport(){ return state.reportType === 'equipos'; }
+  function isMaterialReceiptReport(){ return state.reportType === 'materiales'; }
+  function isInventoryReport(){ return isEquipmentReport() || isMaterialReceiptReport(); }
+  function updateExportPdfModeDefault(){
+    const selector = $('exportPdfMode');
+    const context = `${state.currentReportId || 'new'}:${state.reportType || ''}`;
+    if(!selector || context === exportPdfModeContext) return;
+    selector.value = 'real';
+    exportPdfModeContext = context;
+  }
   function getReportTypeLabel(type){
     const value = type || state.reportType || '';
     if(value === 'incidencia') return 'Reporte de incidencia';
     if(value === 'equipos') return 'Recepción y entrega de equipos';
+    if(value === 'materiales') return 'Recepción de materiales';
     if(value === 'avances') return 'Reporte de avances';
     return '';
   }
@@ -627,6 +669,7 @@
     report.conclusionItems = [...state.conclusionItems];
     report.recommendationItems = [...state.recommendationItems];
     report.coverImage = state.coverImage;
+    report.materialReceipt = state.materialReceipt;
     report.fronts = [...state.fronts];
     report.entries = [...state.entries];
     report.currentFrontId = state.currentFrontId;
@@ -699,6 +742,11 @@
       state.conclusionItems = [...(report.conclusionItems || [])];
       state.recommendationItems = [...(report.recommendationItems || [])];
       state.coverImage = report.coverImage || '';
+      state.materialReceipt = {
+        ...emptyMaterialReceipt(),
+        ...(report.materialReceipt || {}),
+        signatures: { ...emptyMaterialReceipt().signatures, ...(report.materialReceipt?.signatures || {}) }
+      };
       state.fronts = [...(report.fronts || [])];
       state.entries = [...(report.entries || [])];
       state.autoMergeDup = !!report.autoMergeDup;
@@ -711,7 +759,7 @@
         : (['summary', 'fronts', 'issues', 'preview', 'equipment'].includes(previousWorkspaceView) ? previousWorkspaceView : 'summary');
       state.workspaceView = state.showPreviewMode
         ? 'preview'
-        : (report.type === 'equipos'
+        : (['equipos', 'materiales'].includes(report.type)
           ? 'equipment'
           : savedWorkspaceView);
       state.reportMetaComplete = report.metaComplete !== undefined ? !!report.metaComplete : true;
@@ -735,6 +783,7 @@
       state.conclusionItems = [];
       state.recommendationItems = [];
       state.coverImage = '';
+      state.materialReceipt = emptyMaterialReceipt();
       state.fronts = [];
       state.entries = [];
       state.autoMergeDup = false;
@@ -771,6 +820,7 @@
     state.conclusionItems = [];
     state.recommendationItems = [];
     state.coverImage = '';
+    state.materialReceipt = emptyMaterialReceipt();
     state.fronts = [];
     state.entries = [];
     state.autoMergeDup = false;
@@ -1919,6 +1969,232 @@
     return pages;
   }
 
+  function buildMaterialReceiptPages(){
+    const reportKey = `${state.currentProjectId || ''}:${state.currentReportId || ''}`;
+    if(materialReceiptExtraRowsReportKey !== reportKey){
+      materialReceiptExtraRowsReportKey = reportKey;
+      materialReceiptExtraRows = 0;
+    }
+    const receipt = state.materialReceipt || emptyMaterialReceipt();
+    const isSharedPreview = !!sharedReceiptPreview;
+    const previewFieldsDisabled = isSharedPreview || !canEditCurrentReport() ? 'disabled' : '';
+    const entries = Array.isArray(state.entries) ? state.entries : [];
+    const initialRowsPerPage = 6;
+    const rowsPerPage = 12;
+    const totalRows = Math.max(initialRowsPerPage, entries.length) + materialReceiptExtraRows;
+    const chunks = [];
+    const pageCount = Math.max(1, Math.ceil(totalRows / rowsPerPage));
+    for(let pageIndex = 0; pageIndex < pageCount; pageIndex += 1){
+      chunks.push(entries.slice(pageIndex * rowsPerPage, (pageIndex + 1) * rowsPerPage));
+    }
+    const signers = [
+      ['delivered', 'ENTREGA – UNIVERSIDAD DE LIMA', 'deliveredBy', 'deliveredDni', 'deliveredPosition'],
+      ['verified', 'VALIDA - VDC', 'verifiedBy', 'verifiedDni', 'verifiedPosition'],
+      ['received', 'RECIBE / VALIDA - COSAPI', 'receivedBy', 'receivedDni', 'receivedPosition']
+    ];
+    const displayDate = receipt.receiptDate
+      ? formatDateForDisplay(receipt.receiptDate)
+      : '____ / ____ / ______';
+    const projectLocation = state.projectLocation || '________________________________________';
+    const receiptPhotos = Array.isArray(receipt.photos) ? receipt.photos : [];
+    const photoPageCount = Math.ceil(receiptPhotos.length / 4);
+    const totalReceiptPages = chunks.length + photoPageCount;
+    const renderSignerField = (fieldName, label, value, maxLength) => isSharedPreview
+      ? `<span class="materials-receipt-signer-export-value" aria-label="${label}">${escapeHtml(value || '')}</span>`
+      : `<input type="text" data-receipt-signer-field="${fieldName}" value="${escapeHtml(value || '')}" maxlength="${maxLength}" aria-label="${label}" ${previewFieldsDisabled}>`;
+    const photoSignatureMarkup = signers.map(([key, label, nameField, dniField, positionField]) => {
+      const signature = receipt.signatures?.[key]
+        ? `<img class="materials-preview-signature-image" src="${escapeHtml(receipt.signatures[key])}" alt="Firma ${label}">`
+        : '<span class="materials-preview-signature-empty">Sin firma</span>';
+      const signedOn = receipt.signedOn?.[key] ? formatDateForDisplay(receipt.signedOn[key]) : '';
+      return `<div class="materials-receipt-signer">
+        <div class="materials-receipt-signer-heading">${label}</div>
+        <div class="materials-receipt-signature">${signature}</div>
+        <div class="materials-receipt-signer-field"><label>Nombre:</label>${renderSignerField(nameField, `Nombre ${label}`, receipt[nameField], 200)}</div>
+        <div class="materials-receipt-signer-field"><label>DNI:</label>${renderSignerField(dniField, `DNI ${label}`, receipt[dniField], 30)}<label>Cargo:</label>${renderSignerField(positionField, `Cargo ${label}`, receipt[positionField], 100)}</div>
+        <div class="materials-receipt-signer-field"><label>Fecha:</label><span>${escapeHtml(signedOn)}</span></div>
+      </div>`;
+    }).join('');
+    const receiptPages = chunks.map((chunk, pageIndex) => {
+      const visibleRows = chunk.map((entry, index) => `
+        <tr data-material-preview-row data-entry-id="${entry.id}">
+          <td class="materials-receipt-number">${pageIndex * rowsPerPage + index + 1}</td>
+          <td><textarea class="materials-preview-field materials-preview-multiline" data-material-field="itemName" rows="1" aria-label="Descripción del material ${pageIndex * rowsPerPage + index + 1}" ${previewFieldsDisabled}>${escapeHtml(entry.itemName || '')}</textarea></td>
+          <td><textarea class="materials-preview-field materials-preview-multiline" data-material-field="unit" rows="1" aria-label="Unidad del material ${pageIndex * rowsPerPage + index + 1}" ${previewFieldsDisabled}>${escapeHtml(entry.unit || '')}</textarea></td>
+          <td><input class="materials-preview-field" data-material-field="quantity" type="number" min="1" step="1" value="${escapeHtml(String(entry.quantity || 1))}" aria-label="Cantidad del material ${pageIndex * rowsPerPage + index + 1}" ${previewFieldsDisabled}></td>
+          <td><textarea class="materials-preview-field materials-preview-multiline" data-material-field="desc" rows="1" aria-label="Observaciones del material ${pageIndex * rowsPerPage + index + 1}" ${previewFieldsDisabled}>${escapeHtml(entry.desc || '')}</textarea></td>
+        </tr>`).join('');
+      const blankRows = Array.from({ length: rowsPerPage - chunk.length }, (_, index) => {
+        const rowNumber = pageIndex * rowsPerPage + chunk.length + index + 1;
+        if(rowNumber > totalRows) return '';
+        return `<tr class="materials-receipt-blank-row" data-material-preview-row data-entry-id="">
+          <td class="materials-receipt-number">${rowNumber}</td>
+          <td><textarea class="materials-preview-field materials-preview-multiline" data-material-field="itemName" rows="1" aria-label="Descripción del material ${rowNumber}" ${previewFieldsDisabled}></textarea></td>
+          <td><textarea class="materials-preview-field materials-preview-multiline" data-material-field="unit" rows="1" aria-label="Unidad del material ${rowNumber}" ${previewFieldsDisabled}></textarea></td>
+          <td><input class="materials-preview-field" data-material-field="quantity" type="number" min="1" step="1" aria-label="Cantidad del material ${rowNumber}" ${previewFieldsDisabled}></td>
+          <td><textarea class="materials-preview-field materials-preview-multiline" data-material-field="desc" rows="1" aria-label="Observaciones del material ${rowNumber}" ${previewFieldsDisabled}></textarea></td>
+        </tr>`;
+      }).join('');
+      const addRowButton = pageIndex === chunks.length - 1
+        ? `<button type="button" class="materials-receipt-add-row" data-html2canvas-ignore ${previewFieldsDisabled}><i class="bi bi-plus-lg" aria-hidden="true"></i> Agregar fila</button>`
+        : '';
+      const conformityOptions = [
+        ['conforme', 'Recibido conforme'],
+        ['observado', 'Recibido con observaciones'],
+        ['parcial', 'Entrega parcial']
+      ];
+      const sharedCanSetConformity = isSharedPreview
+        && sharedReceiptPreview.canEditObservations
+        && sharedReceiptPreview.signerKey === 'received';
+      const conformityMarkup = isSharedPreview
+        ? `<div class="materials-receipt-options">${conformityOptions.map(([value, label]) => `
+            <label class="materials-receipt-option">
+              <input type="radio" ${sharedCanSetConformity ? 'name="conformity" form="sharedActObservationsForm"' : ''} value="${value}" ${receipt.conformity === value ? 'checked' : ''} ${sharedCanSetConformity ? '' : 'disabled'}>
+              <span>${label}</span>
+            </label>`).join('')}</div>`
+        : `<div class="materials-receipt-options">${conformityOptions.map(([value, label]) => `
+            <label class="materials-receipt-option"><input type="radio" name="materialsReceiptConformity" value="${value}" ${receipt.conformity === value ? 'checked' : ''} ${previewFieldsDisabled}><span>${label}</span></label>
+          `).join('')}</div>`;
+      const sharedObservationMarkup = isSharedPreview
+        ? `<form id="sharedActObservationsForm" method="post" class="shared-act-observations-form">
+            <input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(sharedReceiptPreview.csrfToken || '')}">
+            <input type="hidden" name="action" value="update_observations">
+            ${receipt.observations ? `<div class="shared-act-observations-history" aria-label="Comentarios anteriores">${escapeHtml(receipt.observations)}</div>` : ''}
+            ${sharedReceiptPreview.canEditObservations
+              ? `<textarea class="materials-receipt-observations shared-act-observations-input" name="observations" rows="1" maxlength="10000" aria-label="Agregar comentario" placeholder="Agregar comentario"></textarea>
+                 <button class="btn btn-outline-primary btn-sm shared-act-observations-save" type="submit" data-html2canvas-ignore>${sharedCanSetConformity ? 'Guardar conformidad y comentario' : 'Guardar comentario'}</button>`
+              : (receipt.observations ? '' : '<div class="materials-receipt-observations">Sin comentarios</div>')}
+          </form>`
+        : `<textarea class="materials-receipt-observations" data-material-receipt-observations aria-label="Observaciones de conformidad" ${previewFieldsDisabled}>${escapeHtml(receipt.observations || '')}</textarea>`;
+      const finalPageDetails = pageIndex === chunks.length - 1 ? `
+        <div class="materials-receipt-final-block">
+        <section class="materials-receipt-closing">
+          <h2>CONFORMIDAD DE RECEPCIÓN</h2>
+          <p>La persona que recibe declara haber verificado los materiales y las cantidades detalladas, dejando constancia del resultado de la recepción:</p>
+          ${conformityMarkup}
+          <strong class="materials-receipt-observations-label">Observaciones (faltantes, daños, diferencias u otros):</strong>
+          ${sharedObservationMarkup}
+        </section>
+        <section class="materials-receipt-responsibility">
+          <h2>FIRMAS DE RESPONSABILIDAD</h2>
+          <div class="materials-receipt-signers">${signers.map(([key, label, nameField, dniField, positionField]) => {
+          const signature = receipt.signatures?.[key]
+            ? `<img class="materials-preview-signature-image" data-signature-key="${key}" src="${escapeHtml(receipt.signatures[key])}" alt="Firma ${label}">`
+            : '';
+          const signedOn = receipt.signedOn?.[key] ? formatDateForDisplay(receipt.signedOn[key]) : '';
+          const canSign = isSharedPreview
+            ? sharedReceiptPreview.canSign && sharedReceiptPreview.signerKey === key
+            : canEditCurrentReport();
+          const signatureAction = canSign
+            ? `<button type="button" class="btn btn-outline-primary btn-sm materials-preview-signature-open" data-signature-key="${key}" data-signature-label="${escapeHtml(label)}" ${isSharedPreview ? 'data-open-receipt-signature' : ''}>Firma</button>`
+            : '';
+          return `<div class="materials-receipt-signer">
+            <div class="materials-receipt-signer-heading">${label}</div>
+            <div class="materials-receipt-signature">
+              ${signature || '<span class="materials-preview-signature-empty">Sin firma</span>'}
+            </div>
+            <div class="materials-preview-signature-actions" data-html2canvas-ignore>
+              ${signatureAction}
+            </div>
+            <div class="materials-receipt-signer-field"><label>Nombre:</label>${renderSignerField(nameField, `Nombre ${label}`, receipt[nameField], 200)}</div>
+            <div class="materials-receipt-signer-field"><label>DNI:</label>${renderSignerField(dniField, `DNI ${label}`, receipt[dniField], 30)}<label>Cargo:</label>${renderSignerField(positionField, `Cargo ${label}`, receipt[positionField], 100)}</div>
+            <div class="materials-receipt-signer-field"><label>Fecha:</label><span data-receipt-signed-on="${key}">${escapeHtml(signedOn)}</span></div>
+          </div>`;
+        }).join('')}</div>
+        </section>
+        </div>` : '';
+      return {
+        type: 'materials-receipt',
+        tag: 'ACTA DE ENTREGA DE MATERIALES',
+        body: `<div class="materials-receipt-document ${pageIndex === chunks.length - 1 ? 'has-final-block' : ''}">
+          <header class="materials-receipt-header">
+            <div class="materials-receipt-brand">
+              ${receipt.companyLogo
+                ? `<img class="materials-receipt-company-logo" src="${escapeHtml(receipt.companyLogo)}" alt="Logo de la empresa">`
+                : `<svg viewBox="0 0 40 40" aria-hidden="true"><g fill="#ef6c25"><path d="M20 2l4 10-4 4-4-4zM38 20l-10 4-4-4 4-4zM20 38l-4-10 4-4 4 4zM2 20l10-4 4 4-4 4zM7.3 7.3l10 4.2.4 5.7-5.7-.4zM32.7 7.3l-4.2 10-5.7.4.4-5.7zM32.7 32.7l-10-4.2-.4-5.7 5.7.4zM7.3 32.7l4.2-10 5.7-.4-.4 5.7z"/></g><circle cx="20" cy="20" r="3" fill="#ef6c25"/></svg><span>UNIVERSIDAD<br>DE LIMA</span>`}
+            </div>
+            <div class="materials-receipt-heading">
+              <strong>FORMATO – ACTA DE ENTREGA DE MATERIALES</strong>
+              <span>CONTROL DE ENTREGA Y RECEPCIÓN</span>
+              <span>ÁREA DE ALMACÉN / LOGÍSTICA / PROYECTO</span>
+            </div>
+            <div class="materials-receipt-meta">
+              <span><b>Código:</b> ${escapeHtml(receipt.actNumber || '__________')}</span>
+              <span><b>Versión:</b> 01</span>
+              <span><b>Fecha:</b> ${escapeHtml(displayDate)}</span>
+              <span><b>Página:</b> ${pageIndex + 1} de ${totalReceiptPages}</span>
+            </div>
+          </header>
+          ${pageIndex === 0 ? `<h1>ACTA DE ENTREGA DE MATERIALES</h1>
+          <p class="materials-receipt-intro">Por medio de la presente, se deja constancia de la entrega y recepción de los materiales que se detallan a continuación, realizada en fecha <u>${escapeHtml(displayDate)}</u>, en <u>${escapeHtml(projectLocation)}</u>.</p>` : ''}
+          <h2>DETALLE DE LOS MATERIALES ENTREGADOS</h2>
+          <table class="materials-receipt-table">
+            <colgroup><col class="col-number"><col class="col-description"><col class="col-unit"><col class="col-quantity"><col class="col-observations"></colgroup>
+            <thead><tr>${['N.°', 'DESCRIPCIÓN DEL MATERIAL', 'UNIDAD', 'CANTIDAD', 'OBSERVACIONES'].map(label => `<th>${label}</th>`).join('')}</tr></thead>
+            <tbody>${visibleRows}${blankRows}</tbody>
+          </table>
+          ${addRowButton}
+          ${finalPageDetails}
+        </div>`
+      };
+    });
+    const photoPages = Array.from({ length: photoPageCount }, (_, photoPageIndex) => {
+      const pagePhotos = receiptPhotos.slice(photoPageIndex * 4, (photoPageIndex + 1) * 4);
+      const firstPhotoNumber = photoPageIndex * 4 + 1;
+      const slots = Array.from({ length: 4 }, (_, slotIndex) => {
+        const photo = pagePhotos[slotIndex];
+        const photoNumber = firstPhotoNumber + slotIndex;
+        return `<figure class="materials-receipt-photo-slot ${photo ? 'has-photo' : ''}">
+          ${photo
+            ? `<img src="${escapeHtml(photo.url)}" alt="Foto de validación ${photoNumber}">`
+            : '<div class="materials-receipt-photo-empty">Sin foto</div>'}
+          <figcaption>FOTO ${photoNumber}</figcaption>
+        </figure>`;
+      }).join('');
+      const pageNumber = chunks.length + photoPageIndex + 1;
+      return {
+        type: 'materials-receipt',
+        tag: 'VALIDACIÓN FOTOGRÁFICA',
+        body: `<div class="materials-receipt-document materials-receipt-photo-document">
+          <header class="materials-receipt-header">
+            <div class="materials-receipt-brand">
+              ${receipt.companyLogo
+                ? `<img class="materials-receipt-company-logo" src="${escapeHtml(receipt.companyLogo)}" alt="Logo de la empresa">`
+                : `<svg viewBox="0 0 40 40" aria-hidden="true"><g fill="#ef6c25"><path d="M20 2l4 10-4 4-4-4zM38 20l-10 4-4-4 4-4zM20 38l-4-10 4-4 4 4zM2 20l10-4 4 4-4 4zM7.3 7.3l10 4.2.4 5.7-5.7-.4zM32.7 7.3l-4.2 10-5.7.4.4-5.7zM32.7 32.7l-10-4.2-.4-5.7 5.7.4zM7.3 32.7l4.2-10 5.7-.4-.4 5.7z"/></g><circle cx="20" cy="20" r="3" fill="#ef6c25"/></svg><span>UNIVERSIDAD<br>DE LIMA</span>`}
+            </div>
+            <div class="materials-receipt-heading">
+              <strong>FORMATO – ACTA DE ENTREGA DE MATERIALES</strong>
+              <span>CONTROL DE ENTREGA Y RECEPCIÓN</span>
+              <span>ÁREA DE ALMACÉN / LOGÍSTICA / PROYECTO</span>
+            </div>
+            <div class="materials-receipt-meta">
+              <span><b>Código:</b> ${escapeHtml(receipt.actNumber || '__________')}</span>
+              <span><b>Versión:</b> 01</span>
+              <span><b>Fecha:</b> ${escapeHtml(displayDate)}</span>
+              <span><b>Página:</b> ${pageNumber} de ${totalReceiptPages}</span>
+            </div>
+          </header>
+          <h1 class="materials-receipt-photo-title">VALIDACIÓN FOTOGRÁFICA</h1>
+          <div class="materials-receipt-photo-grid">${slots}</div>
+          <section class="materials-receipt-responsibility">
+            <h2>FIRMAS DE RESPONSABILIDAD</h2>
+            <div class="materials-receipt-signers">${photoSignatureMarkup}</div>
+          </section>
+        </div>`
+      };
+    });
+    return [...receiptPages, ...photoPages];
+  }
+
+  function resizeMaterialReceiptTextarea(field){
+    field.style.height = 'auto';
+    field.style.height = `${field.scrollHeight}px`;
+  }
+
+  function resizeMaterialReceiptTextareas(root = $('reportContainer')){
+    root?.querySelectorAll('textarea.materials-preview-multiline').forEach(resizeMaterialReceiptTextarea);
+  }
+
   function buildSection3Pages(groups, sectionNumber = 3){
     if(!groups.length){
       return [{
@@ -2110,6 +2386,13 @@
     $('exportPdfBtn')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
     $('exportPdfMode')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
     renderReportEditorSections();
+    const receiptPreviewSaveButton = $('saveMaterialReceiptPreviewBtn');
+    receiptPreviewSaveButton?.classList.toggle('d-none', !isMaterialReceiptReport() || !state.showPreviewMode);
+    if(receiptPreviewSaveButton) receiptPreviewSaveButton.disabled = !canEditCurrentReport();
+    $('openMaterialReceiptWordEditorBtn')?.classList.toggle(
+      'd-none',
+      !isMaterialReceiptReport() || !state.showPreviewMode || !canEditCurrentReport()
+    );
     renderReportTypeUi();
     applyWorkspaceView();
     renderFrontList();
@@ -2163,7 +2446,15 @@
   }
 
   function renderReportTypeUi(){
-    const equipmentMode = isEquipmentReport();
+    const equipmentMode = isInventoryReport();
+    const materialsMode = isMaterialReceiptReport();
+    const equipmentOnlyStatus = $('equipmentStatusSelect');
+    if(equipmentOnlyStatus && isEquipmentReport()){
+      const currentStatus = equipmentOnlyStatus.value;
+      const statuses = ['Recepción', 'Validación', 'Entrega', 'Observado'];
+      equipmentOnlyStatus.innerHTML = statuses.map(status => `<option value="${status}">${status}</option>`).join('');
+      equipmentOnlyStatus.value = statuses.includes(currentStatus) ? currentStatus : statuses[0];
+    }
     const incidentMode = state.reportType === 'incidencia';
     const incidentKpiSection = $('incidentKpiSection');
     if(incidentKpiSection){
@@ -2192,7 +2483,9 @@
     }
     const statusSelect = $('statusSelect');
     if(statusSelect){
-      const allowedStatuses = incidentMode ? INCIDENT_STATUSES : PROGRESS_STATUSES;
+      const allowedStatuses = incidentMode
+        ? INCIDENT_STATUSES
+        : (materialsMode ? ['Conforme', 'Observado', 'Dañado', 'Pendiente'] : (isEquipmentReport() ? ['Recepción', 'Validación', 'Entrega', 'Observado'] : PROGRESS_STATUSES));
       const currentStatus = statusSelect.value;
       statusSelect.innerHTML = allowedStatuses.map(status => `<option value="${status}">${status}</option>`).join('');
       statusSelect.value = allowedStatuses.includes(currentStatus) ? currentStatus : allowedStatuses[0];
@@ -2209,13 +2502,35 @@
     const workspaceTitle = $('reportWorkspaceTitle');
     const workspaceDesc = $('reportWorkspaceDesc');
     if(workspaceTitle){
-      workspaceTitle.textContent = equipmentMode ? 'Datos del acta de equipos' : 'Datos del reporte';
+      workspaceTitle.textContent = materialsMode ? 'Datos del acta de materiales' : (equipmentMode ? 'Datos del acta de equipos' : 'Datos del reporte');
     }
     if(workspaceDesc){
-      workspaceDesc.textContent = equipmentMode
-        ? 'Completa portada y ficha técnica. Luego registra cada equipo con su foto.'
-        : 'Completa la información general antes de registrar frentes e issues.';
+      workspaceDesc.textContent = materialsMode
+        ? 'Completa los datos de recepción, agrega los materiales y registra las firmas.'
+        : (equipmentMode
+          ? 'Completa portada y ficha técnica. Luego registra cada equipo con su foto.'
+          : 'Completa la información general antes de registrar frentes e issues.');
     }
+    document.querySelectorAll('.js-materials-only').forEach(el => el.classList.toggle('d-none', !materialsMode));
+    document.querySelectorAll('.js-equipment-only').forEach(el => el.classList.toggle('d-none', materialsMode));
+    if($('equipmentNameLabel')) $('equipmentNameLabel').textContent = materialsMode ? 'Descripción del material' : 'Tipo / nombre de equipo';
+    if($('equipmentPhotoLabel')) $('equipmentPhotoLabel').textContent = materialsMode ? 'Foto del material (opcional)' : 'Foto del equipo';
+    const equipmentCommentsLabel = $('equipmentComments')?.previousElementSibling;
+    if(equipmentCommentsLabel) equipmentCommentsLabel.textContent = materialsMode ? 'Observaciones del material (opcional)' : 'Comentarios (opcional)';
+    const equipmentTitle = $('equipmentSection')?.querySelector('.section-title');
+    if(equipmentTitle) equipmentTitle.textContent = materialsMode ? 'Recepción de materiales' : 'Registrar equipo';
+    const equipmentDescription = $('equipmentSectionDesc');
+    if(equipmentDescription) equipmentDescription.textContent = materialsMode
+      ? 'Completa los datos del acta aquí; agrega materiales, conformidad y firmas desde la vista previa.'
+      : 'Recepción, validación o entrega. Una foto por equipo.';
+    const equipmentNavLabel = $('equipmentNavLabel');
+    if(equipmentNavLabel) equipmentNavLabel.textContent = materialsMode ? 'Recepción' : 'Equipos';
+    if(state.editingEntryId == null && $('addEquipmentBtn')){
+      $('addEquipmentBtn').innerHTML = materialsMode
+        ? '<i class="bi bi-plus-lg" aria-hidden="true"></i><span class="add-equipment-label">Agregar material</span>'
+        : '<i class="bi bi-plus-lg" aria-hidden="true"></i><span class="add-equipment-label">Agregar equipo</span>';
+    }
+    renderMaterialReceiptEditor();
     document.querySelectorAll('.js-nav-equipos').forEach(el => el.classList.toggle('d-none', !equipmentMode));
     document.querySelectorAll('.js-nav-fronts, .js-nav-issues').forEach(el => el.classList.toggle('d-none', equipmentMode));
     const combineByStatus = $('combineByStatus');
@@ -2224,6 +2539,482 @@
     }
     $('reportConclusionsSection')?.classList.toggle('d-none', equipmentMode || incidentMode);
     $('reportFrontsSection')?.classList.toggle('d-none', equipmentMode);
+  }
+
+  let receiptSignatureReportKey = null;
+  const receiptSignatureDirty = new Set();
+  const receiptSignatureCleared = new Set();
+  const receiptSignaturePending = new Map();
+  let activeReceiptSignerKey = '';
+  let receiptSignatureDialogDirty = false;
+  let receiptCompanyLogoDirty = null;
+  let receiptCompanyLogoCleared = false;
+  let receiptCompanyLogoPreviewUrl = '';
+  function renderMaterialReceiptEditor(){
+    const receipt = state.materialReceipt || emptyMaterialReceipt();
+    const fields = {
+      receiptActNumber: 'actNumber',
+      receiptDate: 'receiptDate'
+    };
+    Object.entries(fields).forEach(([id, key]) => {
+      if($(id)) $(id).value = receipt[key] || '';
+    });
+    const reportKey = `${state.currentProjectId || ''}:${state.currentReportId || ''}`;
+    if(receiptSignatureReportKey !== reportKey){
+      receiptSignatureReportKey = reportKey;
+      receiptSignatureDirty.clear();
+      receiptSignatureCleared.clear();
+      receiptSignaturePending.clear();
+      receiptCompanyLogoDirty = null;
+      receiptCompanyLogoCleared = false;
+      if(receiptCompanyLogoPreviewUrl) URL.revokeObjectURL(receiptCompanyLogoPreviewUrl);
+      receiptCompanyLogoPreviewUrl = '';
+      if($('receiptCompanyLogoFile')) $('receiptCompanyLogoFile').value = '';
+    }
+    const companyLogoPreview = $('receiptCompanyLogoPreview');
+    const companyLogoUrl = receiptCompanyLogoDirty
+      ? receiptCompanyLogoPreviewUrl
+      : receiptCompanyLogoCleared ? '' : receipt.companyLogo || '';
+    if(companyLogoPreview){
+      companyLogoPreview.src = companyLogoUrl;
+      companyLogoPreview.classList.toggle('d-none', !companyLogoUrl);
+    }
+    const shareButton = $('shareMaterialReceiptBtn');
+    const currentReport = getCurrentReport();
+    const fillablePdfButton = $('downloadMaterialReceiptFillablePdfBtn');
+    const currentProject = getCurrentProject();
+    if(fillablePdfButton){
+      fillablePdfButton.href = state.currentReportId && currentProject?.slug
+        ? `/proyecto/${encodeURIComponent(currentProject.slug)}/reporte/${state.currentReportId}/pdf-rellenable/`
+        : fillablePdfButton.dataset.templateUrl || fillablePdfButton.href;
+    }
+    renderMaterialReceiptPhotoList();
+    shareButton?.classList.toggle(
+      'd-none',
+      !isMaterialReceiptReport() || !state.currentReportId || !currentReport?.canShare
+    );
+  }
+
+  function renderMaterialReceiptPhotoList(){
+    const container = $('materialReceiptPhotoList');
+    if(!container) return;
+    const photos = Array.isArray(state.materialReceipt?.photos) ? state.materialReceipt.photos : [];
+    const canManagePhotos = !!state.currentReportId && canEditCurrentReport();
+    container.innerHTML = photos.length
+      ? photos.map((photo, index) => {
+        const pageNumber = Math.floor(index / 4) + 1;
+        const slotNumber = (index % 4) + 1;
+        return `<div class="material-receipt-photo-item">
+          <img src="${escapeHtml(photo.url)}" alt="Foto de validación ${index + 1}">
+          <span>Foto ${index + 1} · Hoja ${pageNumber}, espacio ${slotNumber}</span>
+          <button type="button" class="btn btn-outline-danger btn-sm" data-delete-material-receipt-photo="${photo.id}" ${canManagePhotos ? '' : 'disabled'}>Quitar</button>
+        </div>`;
+      }).join('')
+      : '<p class="form-text mb-0">Todavía no hay fotos. Cada hoja del PDF mostrará 4 espacios.</p>';
+    const fileInput = $('materialReceiptPhotoFiles');
+    const uploadButton = $('uploadMaterialReceiptPhotosBtn');
+    if(fileInput) fileInput.disabled = !canManagePhotos;
+    if(uploadButton) uploadButton.disabled = !canManagePhotos;
+  }
+
+  function localDateIso(){
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
+
+  function updatePreviewSignerDate(key, dateValue){
+    state.materialReceipt.signedOn = { ...state.materialReceipt.signedOn, [key]: dateValue };
+    const dateNode = document.querySelector(`#reportContainer [data-receipt-signed-on="${key}"]`);
+    if(dateNode) dateNode.textContent = dateValue ? formatDateForDisplay(dateValue) : '';
+    const status = $('materialReceiptPreviewSaveStatus');
+    if(status) status.textContent = 'Firma modificada. Guarda los cambios del acta para conservarla.';
+  }
+
+  function drawReceiptSignatureImage(canvas, image){
+    const context = canvas.getContext('2d');
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    const scale = Math.min((canvas.width - 16) / image.width, (canvas.height - 16) / image.height);
+    const width = image.width * scale;
+    const height = image.height * scale;
+    context.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+  }
+
+  function showReceiptSignatureTab(tabName){
+    document.querySelectorAll('[data-receipt-signature-tab]').forEach(tab => {
+      const selected = tab.dataset.receiptSignatureTab === tabName;
+      tab.classList.toggle('active', selected);
+      tab.setAttribute('aria-selected', String(selected));
+    });
+    document.querySelectorAll('[data-receipt-signature-panel]').forEach(panel => {
+      panel.classList.toggle('d-none', panel.dataset.receiptSignaturePanel !== tabName);
+    });
+  }
+
+  function openReceiptSignatureDialog(key, label){
+    const dialog = $('materialReceiptSignatureDialog');
+    const canvas = $('materialReceiptSignatureCanvas');
+    if(!dialog || !canvas) return;
+    activeReceiptSignerKey = key;
+    receiptSignatureDialogDirty = false;
+    $('materialReceiptSignatureTitle').textContent = `Firma · ${label}`;
+    $('materialReceiptSignatureExisting').classList.add('d-none');
+    $('materialReceiptSignatureFile').value = '';
+    const canRemoveSignature = !state.materialReceipt.shareConfigured || getCurrentReport()?.canRemoveSharedReceiptSignatures;
+    $('removeMaterialReceiptSignatureBtn').classList.toggle(
+      'd-none',
+      (!state.materialReceipt.signatures?.[key] && !receiptSignatureDirty.has(key)) || !canRemoveSignature
+    );
+    $('materialReceiptSignatureInsertedPreview').classList.add('d-none');
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    showReceiptSignatureTab('draw');
+    const existingSignature = state.materialReceipt.signatures?.[key];
+    if(existingSignature && !receiptSignatureDirty.has(key)){
+      const preview = $('materialReceiptSignatureExisting');
+      preview.src = existingSignature;
+      preview.classList.remove('d-none');
+    } else if(receiptSignatureDirty.has(key)){
+      const signerImage = document.querySelector(`#reportContainer .materials-preview-signature-image[data-signature-key="${key}"]`);
+      if(signerImage){
+        loadImageFromDataUrl(signerImage.src).then(image => {
+          if(activeReceiptSignerKey === key && dialog.open){
+            drawReceiptSignatureImage(canvas, image);
+            receiptSignatureDialogDirty = true;
+            $('materialReceiptSignatureExisting').classList.add('d-none');
+          }
+        }).catch(error => alert(`No se pudo mostrar la firma actual: ${error.message}`));
+      }
+    }
+    dialog.showModal();
+  }
+
+  async function applyReceiptSignatureFromDialog(){
+    const dialog = $('materialReceiptSignatureDialog');
+    const canvas = $('materialReceiptSignatureCanvas');
+    if(!dialog || !canvas || !activeReceiptSignerKey) return;
+    if(receiptSignatureDialogDirty){
+      const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      if(!pixels.some((value, index) => index % 4 === 3 && value > 0)){
+        throw new Error('Dibuja o inserta una imagen de firma antes de continuar.');
+      }
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      if(!blob) throw new Error('No se pudo preparar la firma.');
+      const key = activeReceiptSignerKey;
+      const signer = document.querySelector(`#reportContainer .materials-receipt-signer [data-signature-key="${key}"]`)?.closest('.materials-receipt-signer');
+      const signatureArea = signer?.querySelector('.materials-receipt-signature');
+      if(!signatureArea) throw new Error('No se encontró el espacio de la firma en la vista previa.');
+      let preview = signatureArea.querySelector('.materials-preview-signature-image');
+      if(!preview){
+        preview = document.createElement('img');
+        preview.className = 'materials-preview-signature-image';
+        preview.dataset.signatureKey = key;
+        preview.alt = `Firma ${key}`;
+        signatureArea.replaceChildren(preview);
+      }
+      preview.src = canvas.toDataURL('image/png');
+      receiptSignaturePending.set(key, blob);
+      receiptSignatureDirty.add(key);
+      receiptSignatureCleared.delete(key);
+      updatePreviewSignerDate(key, localDateIso());
+    }
+    dialog.close();
+    activeReceiptSignerKey = '';
+  }
+
+  async function saveMaterialReceipt(){
+    if(!ensureCanEditReport('No tienes permisos para modificar este reporte.')) return;
+    const project = getCurrentProject();
+    if(!project || !state.currentReportId) throw new Error('Primero guarda el reporte antes de registrar el acta.');
+    const formData = new FormData();
+    const fields = {
+      actNumber: 'receiptActNumber',
+      receiptDate: 'receiptDate'
+    };
+    Object.entries(fields).forEach(([key, id]) => formData.append(key, $(id)?.value.trim() || ''));
+    if(receiptCompanyLogoDirty){
+      formData.append('companyLogo', receiptCompanyLogoDirty);
+    } else if(receiptCompanyLogoCleared){
+      formData.append('clearCompanyLogo', 'true');
+    }
+    const data = await requestJson(`/api/projects/${project.slug}/reports/${state.currentReportId}/material-receipt/`, {
+      method: 'POST',
+      body: formData
+    });
+    state.materialReceipt = data.materialReceipt;
+    const report = getCurrentReport();
+    if(report) report.materialReceipt = data.materialReceipt;
+    receiptCompanyLogoDirty = null;
+    receiptCompanyLogoCleared = false;
+    if(receiptCompanyLogoPreviewUrl) URL.revokeObjectURL(receiptCompanyLogoPreviewUrl);
+    receiptCompanyLogoPreviewUrl = '';
+    if($('receiptCompanyLogoFile')) $('receiptCompanyLogoFile').value = '';
+    save();
+    renderMaterialReceiptEditor();
+    renderReport();
+    const status = $('materialReceiptSaveStatus');
+    if(status) status.textContent = 'Acta y firmas guardadas.';
+  }
+
+  function materialReceiptPhotosApiUrl(){
+    const project = getCurrentProject();
+    if(!project || !state.currentReportId) throw new Error('Primero guarda el reporte antes de agregar fotos.');
+    return `/api/projects/${project.slug}/reports/${state.currentReportId}/material-receipt/photos/`;
+  }
+
+  async function uploadMaterialReceiptPhotos(){
+    if(!ensureCanEditReport('No tienes permisos para modificar este reporte.')) return;
+    const input = $('materialReceiptPhotoFiles');
+    const files = [...(input?.files || [])];
+    if(!files.length) throw new Error('Selecciona al menos una foto.');
+    if(files.length > 20) throw new Error('Puedes subir hasta 20 fotos por vez.');
+
+    const button = $('uploadMaterialReceiptPhotosBtn');
+    const status = $('materialReceiptSaveStatus');
+    if(button) button.disabled = true;
+    if(status) status.textContent = 'Preparando fotos…';
+    try {
+      const optimizedFiles = await optimizeImageUploadFiles(files, {
+        maxDimension: 1600,
+        quality: 0.78
+      });
+      const formData = new FormData();
+      optimizedFiles.forEach(file => formData.append('photos', file));
+      const data = await requestJson(materialReceiptPhotosApiUrl(), {
+        method: 'POST',
+        body: formData
+      });
+      state.materialReceipt.photos = data.photos;
+      const report = getCurrentReport();
+      if(report) report.materialReceipt = state.materialReceipt;
+      input.value = '';
+      save();
+      renderMaterialReceiptPhotoList();
+      renderReport();
+      if(status) status.textContent = `${data.photos.length} foto(s) guardada(s). Se incluirán 4 por página al final del PDF.`;
+    } finally {
+      if(button) button.disabled = !state.currentReportId || !canEditCurrentReport();
+    }
+  }
+
+  async function deleteMaterialReceiptPhoto(photoId){
+    if(!ensureCanEditReport('No tienes permisos para modificar este reporte.')) return;
+    const project = getCurrentProject();
+    if(!project || !state.currentReportId) throw new Error('No se encontró el reporte activo.');
+    const data = await requestJson(
+      `/api/projects/${project.slug}/reports/${state.currentReportId}/material-receipt/photos/${photoId}/`,
+      { method: 'DELETE' }
+    );
+    state.materialReceipt.photos = data.photos;
+    const report = getCurrentReport();
+    if(report) report.materialReceipt = state.materialReceipt;
+    save();
+    renderMaterialReceiptPhotoList();
+    renderReport();
+    const status = $('materialReceiptSaveStatus');
+    if(status) status.textContent = 'Foto eliminada del acta.';
+  }
+
+  function materialReceiptShareApiUrl(){
+    const project = getCurrentProject();
+    if(!project || !state.currentReportId) throw new Error('Primero guarda el acta para compartirla.');
+    return `/api/projects/${project.slug}/reports/${state.currentReportId}/material-receipt/share/`;
+  }
+
+  async function openMaterialReceiptShareDialog(){
+    if(!ensureCanEditReport('Solo un administrador puede compartir este reporte.')) return;
+    const dialog = $('materialReceiptShareDialog');
+    const status = $('materialReceiptShareStatus');
+    const linkSection = $('materialReceiptShareLinkSection');
+    const saveButton = $('saveMaterialReceiptShareBtn');
+    const form = $('materialReceiptShareForm');
+    if(!dialog) return;
+    form.querySelectorAll('input[type="password"]').forEach(input => { input.required = true; });
+    status.textContent = 'Consultando el enlace…';
+    linkSection.classList.add('d-none');
+    saveButton.disabled = true;
+    dialog.showModal();
+    try {
+      const data = await requestJson(materialReceiptShareApiUrl(), { method: 'GET' });
+      if(data.configured && data.shareUrl){
+        $('materialReceiptShareUrl').value = data.shareUrl;
+        linkSection.classList.remove('d-none');
+        saveButton.textContent = 'Actualizar contraseñas';
+        status.textContent = 'El enlace está activo. Para cambiar las contraseñas, completa los tres campos.';
+      } else {
+        $('materialReceiptShareUrl').value = '';
+        saveButton.textContent = 'Guardar contraseñas y crear enlace';
+        status.textContent = 'Asigna una contraseña distinta a cada responsable.';
+      }
+    } finally {
+      saveButton.disabled = false;
+    }
+  }
+
+  async function saveMaterialReceiptShare(event){
+    event.preventDefault();
+    const form = $('materialReceiptShareForm');
+    if(!form.reportValidity()) return;
+    const saveButton = $('saveMaterialReceiptShareBtn');
+    const status = $('materialReceiptShareStatus');
+    saveButton.disabled = true;
+    status.textContent = 'Guardando contraseñas…';
+    try {
+      const payload = {
+        delivered: $('shareDeliveredPassword').value,
+        verified: $('shareVerifiedPassword').value,
+        received: $('shareReceivedPassword').value
+      };
+      const data = await requestJson(materialReceiptShareApiUrl(), {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      $('materialReceiptShareUrl').value = data.shareUrl;
+      $('materialReceiptShareLinkSection').classList.remove('d-none');
+      form.querySelectorAll('input[type="password"]').forEach(input => { input.value = ''; });
+      saveButton.textContent = 'Actualizar contraseñas';
+      state.materialReceipt.shareConfigured = true;
+      save();
+      renderReport();
+      status.textContent = 'Enlace listo. Copia el enlace y envía a cada persona solo su contraseña.';
+    } catch(error) {
+      status.textContent = error.message;
+    } finally {
+      saveButton.disabled = false;
+    }
+  }
+
+  async function saveMaterialReceiptPreview(){
+    if(!ensureCanEditReport('No tienes permisos para modificar este reporte.')) return;
+    const project = getCurrentProject();
+    if(!project || !state.currentReportId) throw new Error('Primero guarda el reporte antes de editar el acta.');
+
+    const previewRows = [...document.querySelectorAll('#reportContainer [data-material-preview-row]')];
+    const pendingRows = previewRows.map((row, index) => {
+      const read = key => row.querySelector(`[data-material-field="${key}"]`)?.value.trim() || '';
+      const entryId = Number(row.dataset.entryId) || null;
+      const itemName = read('itemName');
+      const unit = read('unit');
+      const quantityValue = read('quantity');
+      const desc = read('desc');
+      if(!entryId && !itemName && !unit && !quantityValue && !desc) return null;
+      if(!itemName) throw new Error(`Escribe la descripción del material en la fila ${index + 1}.`);
+      if(itemName.length > 200 || unit.length > 40) throw new Error(`La descripción o unidad de la fila ${index + 1} excede el máximo permitido.`);
+      const quantity = quantityValue ? Number(quantityValue) : 1;
+      if(!Number.isInteger(quantity) || quantity < 1) throw new Error(`La cantidad de la fila ${index + 1} debe ser un entero mayor que cero.`);
+      const currentEntry = state.entries.find(entry => Number(entry.id) === entryId);
+      const condition = currentEntry?.condition || currentEntry?.status || 'Conforme';
+      return { entryId, itemName, unit, quantity, condition, desc };
+    }).filter(Boolean);
+
+    const entries = [...state.entries];
+    let createdEntries = 0;
+    for(const row of pendingRows){
+      const formData = new FormData();
+      formData.append('itemName', row.itemName);
+      formData.append('unit', row.unit);
+      formData.append('quantity', String(row.quantity));
+      formData.append('condition', row.condition);
+      formData.append('status', row.condition);
+      formData.append('desc', row.desc);
+      if(row.entryId){
+        const updatedEntry = await updateEntryRemote(project, state.currentReportId, row.entryId, formData);
+        const index = entries.findIndex(entry => Number(entry.id) === row.entryId);
+        if(index >= 0) entries[index] = updatedEntry;
+      } else {
+        entries.push(await createEntryRemote(project, state.currentReportId, formData));
+        createdEntries += 1;
+      }
+      state.entries = [...entries];
+      const currentReport = getCurrentReport();
+      if(currentReport) currentReport.entries = [...entries];
+      save();
+    }
+    materialReceiptExtraRows = Math.max(0, materialReceiptExtraRows - createdEntries);
+
+    const receiptFormData = new FormData();
+    receiptFormData.append('conformity', document.querySelector('#reportContainer [name="materialsReceiptConformity"]:checked')?.value || '');
+    receiptFormData.append('observations', document.querySelector('#reportContainer [data-material-receipt-observations]')?.value.trim() || '');
+    [
+      'deliveredBy', 'deliveredDni', 'deliveredPosition',
+      'verifiedBy', 'verifiedDni', 'verifiedPosition',
+      'receivedBy', 'receivedDni', 'receivedPosition'
+    ].forEach(key => {
+      const field = document.querySelector(`#reportContainer [data-receipt-signer-field="${key}"]`);
+      receiptFormData.append(key, field?.value.trim() || '');
+    });
+    const signatureFields = {
+      delivered: 'Delivered',
+      received: 'Received',
+      verified: 'Verified'
+    };
+    for(const [key, suffix] of Object.entries(signatureFields)){
+      if(receiptSignatureDirty.has(key)){
+        const blob = receiptSignaturePending.get(key);
+        if(!blob) throw new Error(`No se pudo preparar la firma de ${key}. Vuelve a insertarla.`);
+        receiptFormData.append(`signature${suffix}`, blob, `firma-${key}.png`);
+      } else if(receiptSignatureCleared.has(key)){
+        receiptFormData.append(`clearSignature${suffix}`, 'true');
+      }
+    }
+    const clearedSignatureCount = receiptSignatureCleared.size;
+    const receiptData = await requestJson(`/api/projects/${project.slug}/reports/${state.currentReportId}/material-receipt/`, {
+      method: 'POST',
+      body: receiptFormData
+    });
+
+    state.entries = entries;
+    state.materialReceipt = { ...state.materialReceipt, ...receiptData.materialReceipt };
+    receiptSignatureDirty.clear();
+    receiptSignatureCleared.clear();
+    receiptSignaturePending.clear();
+    const report = getCurrentReport();
+    if(report){
+      report.entries = [...entries];
+      report.materialReceipt = state.materialReceipt;
+    }
+    save();
+    renderReport();
+    const status = $('materialReceiptPreviewSaveStatus');
+    if(status){
+      status.textContent = clearedSignatureCount
+        ? 'Firma eliminada y datos del responsable borrados en el acta compartida.'
+        : 'Cambios del acta guardados.';
+    }
+  }
+
+  async function addMaterialReceiptPreviewRow(){
+    if(!ensureCanEditReport('No tienes permisos para modificar este reporte.')) return;
+    const container = $('reportContainer');
+    if(!container) return;
+    const rows = [...container.querySelectorAll('[data-material-preview-row]')];
+    const rowValues = rows.map(row => Object.fromEntries(
+      [...row.querySelectorAll('[data-material-field]')].map(field => [field.dataset.materialField, field.value])
+    ));
+    const conformity = container.querySelector('[name="materialsReceiptConformity"]:checked')?.value || '';
+    const observations = container.querySelector('[data-material-receipt-observations]')?.value || '';
+
+    materialReceiptExtraRows += 1;
+    await refreshPreviewContent();
+
+    const refreshedRows = [...container.querySelectorAll('[data-material-preview-row]')];
+    rowValues.forEach((values, index) => {
+      const row = refreshedRows[index];
+      if(!row) return;
+      Object.entries(values).forEach(([key, value]) => {
+        const field = row.querySelector(`[data-material-field="${key}"]`);
+        if(!field) return;
+        field.value = value;
+        if(field.matches('textarea.materials-preview-multiline')) resizeMaterialReceiptTextarea(field);
+      });
+    });
+    const conformityInput = conformity
+      ? container.querySelector(`[name="materialsReceiptConformity"][value="${conformity}"]`)
+      : null;
+    if(conformityInput) conformityInput.checked = true;
+    const observationsField = container.querySelector('[data-material-receipt-observations]');
+    if(observationsField) observationsField.value = observations;
+    const status = $('materialReceiptPreviewSaveStatus');
+    if(status) status.textContent = 'Fila agregada. Guarda los cambios del acta al terminar.';
+    refreshedRows[rowValues.length]?.querySelector('[data-material-field="itemName"]')?.focus();
   }
 
   function clearEquipmentPhotoInputs(){
@@ -2241,22 +3032,27 @@
     state.editingEntryId = null;
     if($('equipmentName')) $('equipmentName').value = '';
     if($('equipmentBuilding')) $('equipmentBuilding').value = '';
+    if($('equipmentUnit')) $('equipmentUnit').value = '';
+    if($('equipmentCondition')) $('equipmentCondition').value = 'Conforme';
     if($('equipmentQuantity')) $('equipmentQuantity').value = '1';
     if($('equipmentStatusSelect')) $('equipmentStatusSelect').value = 'Recepción';
     if($('equipmentComments')) $('equipmentComments').value = '';
-    if($('addEquipmentBtn')) $('addEquipmentBtn').innerHTML = '<i class="bi bi-plus-lg" aria-hidden="true"></i><span class="add-equipment-label">Agregar equipo</span>';
+    if($('addEquipmentBtn')) $('addEquipmentBtn').innerHTML = isMaterialReceiptReport()
+      ? '<i class="bi bi-plus-lg" aria-hidden="true"></i><span class="add-equipment-label">Agregar material</span>'
+      : '<i class="bi bi-plus-lg" aria-hidden="true"></i><span class="add-equipment-label">Agregar equipo</span>';
     $('cancelEquipmentEditBtn')?.classList.add('d-none');
     clearEquipmentPhotoInputs();
   }
 
   async function ensureEquipmentFront(){
-    const existing = state.fronts.find(front => front.name === 'Equipos') || state.fronts[0];
+    const frontName = isMaterialReceiptReport() ? 'Materiales' : 'Equipos';
+    const existing = state.fronts.find(front => front.name === frontName) || state.fronts[0];
     if(existing) return existing.id;
     const project = getCurrentProject();
     if(!project || !state.currentReportId){
       throw new Error('Primero guarda el reporte antes de registrar equipos.');
     }
-    const front = await createFrontRemote(project, state.currentReportId, 'Equipos');
+    const front = await createFrontRemote(project, state.currentReportId, frontName);
     state.fronts.push(front);
     const report = getCurrentReport();
     if(report) report.fronts = [...state.fronts];
@@ -2267,7 +3063,7 @@
   function renderEquipmentList(){
     const container = $('equipmentList');
     if(!container) return;
-    if(!isEquipmentReport()){
+    if(!isInventoryReport()){
       container.innerHTML = '';
       return;
     }
@@ -2285,8 +3081,9 @@
             ${thumb}
             <div>
               <strong>${escapeHtml(entry.itemName || 'Sin nombre')}</strong>
-              <div class="small text-muted">${escapeHtml(entry.buildingLocation || 'Sin ubicación')} · Cant. ${escapeHtml(String(entry.quantity || 1))}</div>
+              <div class="small text-muted">${isMaterialReceiptReport() ? `${escapeHtml(entry.unit || 'Sin unidad')} · Cant. ${escapeHtml(String(entry.quantity || 1))}` : `${escapeHtml(entry.buildingLocation || 'Sin ubicación')} · Cant. ${escapeHtml(String(entry.quantity || 1))}`}</div>
               <span class="badge badge-status ${STATUS_BADGE[entry.status] || 'bg-info text-dark'}">${escapeHtml(entry.status)}</span>
+              ${isMaterialReceiptReport() && entry.condition ? `<div class="small text-muted">${escapeHtml(entry.condition)}</div>` : ''}
               ${entry.desc ? `<div class="small mt-1">${escapeHtml(entry.desc)}</div>` : ''}
             </div>
           </div>
@@ -2303,10 +3100,12 @@
       state.editingEntryId = entry.id;
       $('equipmentName').value = entry.itemName || '';
       $('equipmentBuilding').value = entry.buildingLocation || '';
+      if($('equipmentUnit')) $('equipmentUnit').value = entry.unit || '';
+      if($('equipmentCondition')) $('equipmentCondition').value = entry.condition || entry.status || 'Conforme';
       $('equipmentQuantity').value = String(entry.quantity || 1);
       $('equipmentStatusSelect').value = entry.status || 'Recepción';
       $('equipmentComments').value = entry.desc || '';
-      $('addEquipmentBtn').innerHTML = '<i class="bi bi-check2" aria-hidden="true"></i><span class="add-equipment-label">Guardar equipo</span>';
+      $('addEquipmentBtn').innerHTML = `<i class="bi bi-check2" aria-hidden="true"></i><span class="add-equipment-label">Guardar ${isMaterialReceiptReport() ? 'material' : 'equipo'}</span>`;
       $('cancelEquipmentEditBtn')?.classList.remove('d-none');
       clearEquipmentPhotoInputs();
       $('equipmentName')?.focus();
@@ -2335,7 +3134,7 @@
     const reportWorkspaceDesc = $('reportWorkspaceDesc');
     const reportWorkspaceHeader = $('reportWorkspaceHeader');
     const reportWorkspaceSection = $('reportWorkspaceSection');
-    const equipmentMode = isEquipmentReport();
+    const equipmentMode = isInventoryReport();
     const incidentMode = state.reportType === 'incidencia';
     const formOpen = !!state.showIssueForm && issueFormManuallyOpened;
     const detailOpen = !formOpen && !!state.selectedEntryId;
@@ -2392,8 +3191,8 @@
     const shouldShowWorkspaceControls = isOnReportWorkspaceRoute() && hasActiveReportWorkspaceContext();
     $('sidebarDashboardGroup')?.classList.toggle('d-none', shouldShowWorkspaceControls);
     $('sidebarWorkspaceGroup')?.classList.toggle('d-none', !shouldShowWorkspaceControls);
-    document.querySelectorAll('.js-nav-equipos').forEach(el => el.classList.toggle('d-none', !isEquipmentReport()));
-    document.querySelectorAll('.js-nav-fronts, .js-nav-issues').forEach(el => el.classList.toggle('d-none', isEquipmentReport()));
+    document.querySelectorAll('.js-nav-equipos').forEach(el => el.classList.toggle('d-none', !isInventoryReport()));
+    document.querySelectorAll('.js-nav-fronts, .js-nav-issues').forEach(el => el.classList.toggle('d-none', isInventoryReport()));
   }
 
   function renderFrontDetail(){
@@ -2776,7 +3575,7 @@
     const showingPlans = projectDashboardView === 'plans';
     const showingResponsibles = projectDashboardView === 'responsibles';
     const showingReports = projectDashboardView === 'reports';
-    const reportTypeLabels = { incidencia: 'Reporte de incidencia', avances: 'Reporte de avances', equipos: 'Recepción y entrega de equipos' };
+    const reportTypeLabels = { incidencia: 'Reporte de incidencia', avances: 'Reporte de avances', equipos: 'Recepción y entrega de equipos', materiales: 'Recepción de materiales' };
     projectSummaryTab?.classList.toggle('is-active', !showingPlans && !showingResponsibles && !showingReports);
     projectPlansTab?.classList.toggle('is-active', showingPlans);
     projectResponsiblesTab?.classList.toggle('is-active', showingResponsibles);
@@ -2804,7 +3603,7 @@
       const reportLabel = reportTypeLabels[projectDashboardReportType] || 'reporte';
       addTypeReportButton.title = `Agregar ${reportLabel}`;
       addTypeReportButton.setAttribute('aria-label', `Agregar ${reportLabel}`);
-      addTypeReportButton.innerHTML = '<i class="bi bi-plus-lg" aria-hidden="true"></i>';
+      addTypeReportButton.innerHTML = `<i class="bi bi-plus-lg" aria-hidden="true"></i><span id="dashboardAddTypeReportLabel" class="dashboard-add-report-label">Crear ${escapeHtml(reportLabel)}</span>`;
     }
     const plans = Array.isArray(current.plans) ? current.plans : [];
     uploadPlanButton?.classList.toggle('d-none', !current.canEdit);
@@ -2955,7 +3754,9 @@
       body: `<div class="report-page-content report-info-page-content"><div class="secondary-head"><div><strong>Semana:</strong> ${escapeHtml(reportWeek || 'Sin semana')}</div><div><strong>Proyecto:</strong> ${escapeHtml(projectName || 'Sin nombre')}</div><div><strong>Ubicación:</strong> ${escapeHtml(projectLocation || 'Sin ubicación')}</div><div><strong>Fecha:</strong> ${escapeHtml(fecha)}</div></div><div class="secondary-photo-wrap">${mainImage ? `<img src="${mainImage}" class="secondary-main-photo" alt="Foto principal">` : '<div class="secondary-photo-placeholder">Insertar foto principal</div>'}</div><div class="secondary-meta-row"><div class="secondary-meta-block"><label>Solicitado por</label><div>${escapeHtml(state.forWhom || 'Sin dato')}</div></div><div class="secondary-meta-block"><label>Responsable</label><div>${escapeHtml(state.fromWhom || 'Sin dato')}</div></div></div></div>`
     });
 
-    if(isEquipmentReport()){
+    if(isMaterialReceiptReport()){
+      pages.push(...buildMaterialReceiptPages());
+    } else if(isEquipmentReport()){
       pages.push(...buildEquipmentPages(state.entries));
     } else {
       if(state.reportType !== 'incidencia'){
@@ -2968,7 +3769,7 @@
 
       pages.push(...buildSection3Pages(groups, state.reportType === 'incidencia' ? 1 : 3));
 
-      if(state.reportType !== 'incidencia' && !isEquipmentReport()){
+      if(state.reportType !== 'incidencia' && !isInventoryReport()){
         pages.push({
           type: 'section',
           tag: '4. CONCLUSIONES + 5. RECOMENDACIONES',
@@ -2976,15 +3777,23 @@
         });
       }
     }
+    if(isMaterialReceiptReport()) pages.splice(0, 2);
     const totalPages = pages.length;
     pages.forEach((page, index) => {
       const number = index + 1;
       const pageNode = document.createElement('div');
-      pageNode.className = page.type === 'cover' ? 'report-page report-cover' : 'report-page report-secondary-page';
-      pageNode.innerHTML = `${renderCompanyHeader()}${page.body}${page.type === 'cover' ? renderCoverFooterBlock(number, totalPages) : renderPageFooter(number, totalPages)}`;
+      const isMaterialsReceipt = page.type === 'materials-receipt';
+      pageNode.className = isMaterialsReceipt
+        ? 'report-page report-secondary-page materials-receipt-page'
+        : page.type === 'cover' ? 'report-page report-cover' : 'report-page report-secondary-page';
+      pageNode.innerHTML = isMaterialsReceipt
+        ? page.body
+        : `${renderCompanyHeader()}${page.body}${page.type === 'cover' ? renderCoverFooterBlock(number, totalPages) : renderPageFooter(number, totalPages)}`;
       rc.appendChild(pageNode);
     });
 
+    resizeMaterialReceiptTextareas(rc);
+    updateExportPdfModeDefault();
     updatePreviewScale();
   }
 
@@ -3099,7 +3908,28 @@
 
   function buildRealPdfHtml(){
     const reportContainer = $('reportContainer');
-    return reportContainer ? reportContainer.innerHTML : '';
+    if(!reportContainer) return '';
+    const exportContainer = reportContainer.cloneNode(true);
+    const sourceFields = reportContainer.querySelectorAll('input, textarea, select');
+    const targetFields = exportContainer.querySelectorAll('input, textarea, select');
+    sourceFields.forEach((source, index) => {
+      const target = targetFields[index];
+      if(!target) return;
+      if(source instanceof HTMLTextAreaElement){
+        target.textContent = source.value;
+      } else if(source instanceof HTMLInputElement){
+        target.setAttribute('value', source.value);
+        if(source.checked) target.setAttribute('checked', '');
+        else target.removeAttribute('checked');
+      } else if(source instanceof HTMLSelectElement){
+        [...target.options].forEach((option, optionIndex) => {
+          if(source.options[optionIndex]?.selected) option.setAttribute('selected', '');
+          else option.removeAttribute('selected');
+        });
+      }
+    });
+    exportContainer.querySelectorAll('.materials-receipt-add-row, .materials-preview-signature-actions').forEach(button => button.remove());
+    return exportContainer.innerHTML;
   }
 
   async function appendIncidentPlanPage(renderToken = null){
@@ -3162,7 +3992,32 @@
 
   async function generateReportPdf(){
     await appendIncidentPlanPage();
-    const { jsPDF } = window.jspdf;
+    const jsPDF = window.jspdf?.jsPDF;
+    if(!jsPDF || !window.html2canvas){
+      throw new Error('No se pudieron cargar las herramientas para generar el PDF. Recarga la página e inténtalo de nuevo.');
+    }
+    const reportImages = Array.from($('reportContainer')?.querySelectorAll('img') || []);
+    await Promise.all(reportImages.map(async image => {
+      if(image.complete){
+        if(image.naturalWidth === 0) throw new Error(`No se pudo cargar la imagen ${image.alt || 'del acta'}.`);
+        return;
+      }
+      if(typeof image.decode === 'function'){
+        try {
+          await image.decode();
+        } catch(error) {
+          if(!image.complete || image.naturalWidth === 0) {
+            throw new Error(`No se pudo cargar la imagen ${image.alt || 'del acta'}.`, { cause: error });
+          }
+        }
+        return;
+      }
+      await new Promise((resolve, reject) => {
+        image.addEventListener('load', resolve, { once: true });
+        image.addEventListener('error', () => reject(new Error(`No se pudo cargar la imagen ${image.alt || 'del acta'}.`)), { once: true });
+      });
+    }));
+    if(document.fonts?.ready) await document.fonts.ready;
     const pages = Array.from(document.querySelectorAll('.report-page'));
     const previewCanvas = $('previewCanvas');
     const previewScaleShell = $('previewScaleShell');
@@ -3201,11 +4056,36 @@
       return pdf;
     }
     const renderPage = async (page, pageIndex) => {
-      const canvas = await html2canvas(page, {
-        scale: PDF_RENDER_SCALE,
-        useCORS: true,
-        backgroundColor: '#ffffff'
+      const capturePage = page.cloneNode(true);
+      capturePage.querySelectorAll('textarea').forEach(field => {
+        const text = document.createElement('div');
+        text.className = `${field.className} materials-preview-export-text`;
+        text.textContent = field.value;
+        field.replaceWith(text);
       });
+      page.querySelectorAll('[data-receipt-signer-field]').forEach((field, fieldIndex) => {
+        const captureField = capturePage.querySelectorAll('[data-receipt-signer-field]')[fieldIndex];
+        if(!captureField) return;
+        const text = document.createElement('div');
+        text.className = 'materials-preview-export-text materials-receipt-signer-export-value';
+        text.textContent = field.value;
+        captureField.replaceWith(text);
+      });
+      const captureHost = document.createElement('div');
+      captureHost.style.cssText = 'position:fixed;left:-100000px;top:0;width:210mm;background:#fff;';
+      captureHost.appendChild(capturePage);
+      document.body.appendChild(captureHost);
+      let canvas;
+      try {
+        canvas = await html2canvas(capturePage, {
+          scale: PDF_RENDER_SCALE,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          ignoreElements: element => element.matches('[data-html2canvas-ignore]')
+        });
+      } finally {
+        captureHost.remove();
+      }
       const imgData = canvas.toDataURL('image/jpeg', PDF_IMAGE_QUALITY);
       const canvasWidth = canvas.width || 1;
       const canvasHeight = canvas.height || 1;
@@ -3247,7 +4127,9 @@
       ? 'REPORTE DE INCIDENCIA'
       : reportType === 'equipos'
         ? 'RECEPCIÓN, VALIDACIÓN Y ENTREGA DE EQUIPOS'
-        : 'REPORTE DE AVANCES';
+        : reportType === 'materiales'
+          ? 'ACTA DE ENTREGA DE MATERIALES'
+          : 'REPORTE DE AVANCES';
     resetReportDraftState();
     state.reportType = reportType;
     state.reportTitle = defaultTitle;
@@ -3819,7 +4701,10 @@
         ? 'REPORTE DE INCIDENCIA'
         : reportType === 'equipos'
           ? 'RECEPCIÓN, VALIDACIÓN Y ENTREGA DE EQUIPOS'
-          : 'REPORTE DE AVANCES';
+          : reportType === 'materiales'
+            ? 'ACTA DE ENTREGA DE MATERIALES'
+            : 'REPORTE DE AVANCES';
+      state.workspaceView = ['equipos', 'materiales'].includes(reportType) ? 'equipment' : 'summary';
       save();
       setNewReportRoute(project);
       renderAll();
@@ -4405,6 +5290,8 @@
         ? 'REPORTE DE INCIDENCIA'
         : reportType === 'equipos'
           ? 'RECEPCIÓN, VALIDACIÓN Y ENTREGA DE EQUIPOS'
+          : reportType === 'materiales'
+            ? 'ACTA DE ENTREGA DE MATERIALES'
           : 'REPORTE DE AVANCES';
       formData.append('reportType', reportType);
       formData.append('reportTitle', state.reportTitle || defaultTitle);
@@ -4440,7 +5327,7 @@
       state.reportType = reportType;
       state.reportMetaComplete = true;
       state.existingReportOpen = true;
-      state.workspaceView = reportType === 'equipos' ? 'equipment' : 'summary';
+      state.workspaceView = ['equipos', 'materiales'].includes(reportType) ? 'equipment' : 'summary';
       state.editingReportMeta = false;
       loadProject(project);
       if(reportType === 'incidencia') {
@@ -4582,6 +5469,247 @@
     $('equipmentTakePhotoBtn')?.addEventListener('click', () => $('equipmentPhotoCameraInput')?.click());
     $('equipmentChoosePhotoBtn')?.addEventListener('click', () => $('equipmentPhotoInput')?.click());
     $('cancelEquipmentEditBtn')?.addEventListener('click', () => { resetEquipmentEditor(); save(); renderAll(); });
+    const receiptFieldBindings = [
+      ['receiptActNumber', 'actNumber'],
+      ['receiptDate', 'receiptDate'],
+      ['receiptDeliveredBy', 'deliveredBy'],
+      ['receiptDeliveredDni', 'deliveredDni'],
+      ['receiptDeliveredPosition', 'deliveredPosition'],
+      ['receiptReceivedBy', 'receivedBy'],
+      ['receiptReceivedDni', 'receivedDni'],
+      ['receiptReceivedPosition', 'receivedPosition'],
+      ['receiptVerifiedBy', 'verifiedBy'],
+      ['receiptVerifiedDni', 'verifiedDni'],
+      ['receiptVerifiedPosition', 'verifiedPosition']
+    ];
+    receiptFieldBindings.forEach(([id, key]) => {
+      $(id)?.addEventListener('input', event => {
+        state.materialReceipt[key] = event.target.value;
+        save();
+      });
+      $(id)?.addEventListener('change', event => {
+        state.materialReceipt[key] = event.target.value;
+        save();
+      });
+    });
+    $('receiptCompanyLogoFile')?.addEventListener('change', async event => {
+      const input = event.target;
+      const file = input.files?.[0];
+      if(!file) return;
+      if(!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024){
+        alert('Selecciona un logo PNG, JPG o WebP de hasta 5 MB.');
+        input.value = '';
+        return;
+      }
+      try {
+        await loadImageFromDataUrl(await readFileAsDataUrl(file));
+        if(receiptCompanyLogoPreviewUrl) URL.revokeObjectURL(receiptCompanyLogoPreviewUrl);
+        receiptCompanyLogoDirty = file;
+        receiptCompanyLogoCleared = false;
+        receiptCompanyLogoPreviewUrl = URL.createObjectURL(file);
+        const preview = $('receiptCompanyLogoPreview');
+        if(preview){
+          preview.src = receiptCompanyLogoPreviewUrl;
+          preview.classList.remove('d-none');
+        }
+        const status = $('materialReceiptSaveStatus');
+        if(status) status.textContent = 'Logo listo. Guarda los datos del acta para aplicarlo al encabezado.';
+      } catch (error) {
+        input.value = '';
+        alert(`No se pudo cargar el logo: ${error.message}`);
+      }
+    });
+    $('clearReceiptCompanyLogoBtn')?.addEventListener('click', () => {
+      if($('receiptCompanyLogoFile')) $('receiptCompanyLogoFile').value = '';
+      receiptCompanyLogoDirty = null;
+      receiptCompanyLogoCleared = !!state.materialReceipt.companyLogo;
+      if(receiptCompanyLogoPreviewUrl) URL.revokeObjectURL(receiptCompanyLogoPreviewUrl);
+      receiptCompanyLogoPreviewUrl = '';
+      $('receiptCompanyLogoPreview')?.classList.add('d-none');
+      const status = $('materialReceiptSaveStatus');
+      if(status) status.textContent = receiptCompanyLogoCleared
+        ? 'Logo marcado para quitar. Guarda los datos del acta para confirmar.'
+        : 'No hay un logo guardado para quitar.';
+    });
+    $('uploadMaterialReceiptPhotosBtn')?.addEventListener('click', () => {
+      uploadMaterialReceiptPhotos().catch(error => alert(error.message));
+    });
+    $('materialReceiptPhotoList')?.addEventListener('click', event => {
+      const button = event.target.closest('[data-delete-material-receipt-photo]');
+      if(!button) return;
+      deleteMaterialReceiptPhoto(button.dataset.deleteMaterialReceiptPhoto).catch(error => alert(error.message));
+    });
+    $('shareMaterialReceiptBtn')?.addEventListener('click', () => {
+      openMaterialReceiptShareDialog().catch(error => alert(error.message));
+    });
+    $('materialReceiptShareForm')?.addEventListener('submit', saveMaterialReceiptShare);
+    $('materialReceiptShareDialog')?.addEventListener('click', event => {
+      if(event.target.closest('[data-close-receipt-share]')){
+        $('materialReceiptShareDialog').close();
+      }
+    });
+    $('copyMaterialReceiptShareUrlBtn')?.addEventListener('click', async () => {
+      const input = $('materialReceiptShareUrl');
+      try {
+        await navigator.clipboard.writeText(input.value);
+        $('materialReceiptShareStatus').textContent = 'Enlace copiado.';
+      } catch(error) {
+        input.select();
+        $('materialReceiptShareStatus').textContent = 'Selecciona y copia el enlace manualmente.';
+      }
+    });
+    const reportContainer = $('reportContainer');
+    const signatureDialog = $('materialReceiptSignatureDialog');
+    let activeSignatureCanvas = null;
+    reportContainer?.addEventListener('click', event => {
+      const button = event.target.closest('.materials-preview-signature-open');
+      if(!button || !isMaterialReceiptReport() || !canEditCurrentReport()) return;
+      openReceiptSignatureDialog(button.dataset.signatureKey, button.dataset.signatureLabel);
+    });
+    signatureDialog?.addEventListener('click', event => {
+      const tab = event.target.closest('[data-receipt-signature-tab]');
+      if(tab){
+        showReceiptSignatureTab(tab.dataset.receiptSignatureTab);
+        return;
+      }
+      if(event.target.closest('[data-close-receipt-signature]')){
+        signatureDialog.close();
+        return;
+      }
+      if(event.target.closest('#insertMaterialReceiptSignatureBtn')){
+        $('materialReceiptSignatureFile')?.click();
+        return;
+      }
+      if(event.target.closest('#clearMaterialReceiptSignatureCanvasBtn')){
+        const canvas = $('materialReceiptSignatureCanvas');
+        canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+        receiptSignatureDialogDirty = false;
+        $('materialReceiptSignatureInsertedPreview').classList.add('d-none');
+        const savedSignature = state.materialReceipt.signatures?.[activeReceiptSignerKey];
+        $('materialReceiptSignatureExisting').classList.toggle('d-none', !savedSignature);
+        return;
+      }
+      if(event.target.closest('#removeMaterialReceiptSignatureBtn')){
+        const key = activeReceiptSignerKey;
+        if(!key) return;
+        const signer = document.querySelector(`#reportContainer [data-receipt-signed-on="${key}"]`)?.closest('.materials-receipt-signer');
+        const signatureArea = signer?.querySelector('.materials-receipt-signature');
+        if(signatureArea) signatureArea.innerHTML = '<span class="materials-preview-signature-empty">Sin firma</span>';
+        receiptSignaturePending.delete(key);
+        receiptSignatureDirty.delete(key);
+        receiptSignatureCleared.add(key);
+        updatePreviewSignerDate(key, '');
+        signatureDialog.close();
+        return;
+      }
+      if(event.target.closest('#useMaterialReceiptSignatureBtn')){
+        applyReceiptSignatureFromDialog().catch(error => alert(error.message));
+      }
+    });
+    signatureDialog?.addEventListener('cancel', () => {
+      activeReceiptSignerKey = '';
+      activeSignatureCanvas = null;
+    });
+    signatureDialog?.addEventListener('close', () => {
+      activeReceiptSignerKey = '';
+      activeSignatureCanvas = null;
+      receiptSignatureDialogDirty = false;
+    });
+    signatureDialog?.addEventListener('change', async event => {
+      const input = event.target.closest('#materialReceiptSignatureFile');
+      const file = input?.files?.[0];
+      if(!file) return;
+      if(!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024){
+        alert('Selecciona una firma PNG, JPG o WebP de hasta 5 MB.');
+        input.value = '';
+        return;
+      }
+      try {
+        const image = await loadImageFromDataUrl(await readFileAsDataUrl(file));
+        const canvas = $('materialReceiptSignatureCanvas');
+        drawReceiptSignatureImage(canvas, image);
+        receiptSignatureDialogDirty = true;
+        $('materialReceiptSignatureExisting').classList.add('d-none');
+        const preview = $('materialReceiptSignatureInsertedPreview');
+        preview.src = canvas.toDataURL('image/png');
+        preview.classList.remove('d-none');
+      } catch (error) {
+        input.value = '';
+        alert(`No se pudo cargar la imagen de la firma: ${error.message}`);
+      }
+    });
+    $('materialReceiptSignatureCanvas')?.addEventListener('pointerdown', event => {
+      if(!activeReceiptSignerKey || !canEditCurrentReport()) return;
+      if(document.querySelector('[data-receipt-signature-tab][aria-selected="true"]')?.dataset.receiptSignatureTab !== 'draw') return;
+      const canvas = event.currentTarget;
+      const context = canvas.getContext('2d');
+      const rect = canvas.getBoundingClientRect();
+      activeSignatureCanvas = canvas;
+      canvas.setPointerCapture(event.pointerId);
+      context.beginPath();
+      context.moveTo((event.clientX - rect.left) * canvas.width / rect.width, (event.clientY - rect.top) * canvas.height / rect.height);
+      context.strokeStyle = '#111827';
+      context.lineWidth = 3;
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
+      receiptSignatureDialogDirty = true;
+      $('materialReceiptSignatureExisting').classList.add('d-none');
+    });
+    $('materialReceiptSignatureCanvas')?.addEventListener('pointermove', event => {
+      if(!activeSignatureCanvas) return;
+      const rect = activeSignatureCanvas.getBoundingClientRect();
+      const context = activeSignatureCanvas.getContext('2d');
+      context.lineTo((event.clientX - rect.left) * activeSignatureCanvas.width / rect.width, (event.clientY - rect.top) * activeSignatureCanvas.height / rect.height);
+      context.stroke();
+    });
+    const finishSignatureDrawing = () => { activeSignatureCanvas = null; };
+    $('materialReceiptSignatureCanvas')?.addEventListener('pointerup', finishSignatureDrawing);
+    $('materialReceiptSignatureCanvas')?.addEventListener('pointercancel', finishSignatureDrawing);
+    $('saveMaterialReceiptBtn')?.addEventListener('click', () => {
+      const status = $('materialReceiptSaveStatus');
+      if(status) status.textContent = 'Guardando…';
+      saveMaterialReceipt().catch(error => {
+        if(status) status.textContent = '';
+        alert(error.message);
+      });
+    });
+    $('reportContainer')?.addEventListener('click', event => {
+      const button = event.target.closest('.materials-receipt-add-row');
+      if(!button) return;
+      if(button) button.disabled = true;
+      addMaterialReceiptPreviewRow().catch(error => {
+        alert(error.message);
+      }).finally(() => {
+        if(button.isConnected) button.disabled = !canEditCurrentReport();
+      });
+    });
+    $('saveMaterialReceiptPreviewBtn')?.addEventListener('click', () => {
+      const status = $('materialReceiptPreviewSaveStatus');
+      const button = $('saveMaterialReceiptPreviewBtn');
+      if(status) status.textContent = 'Guardando…';
+      if(button) button.disabled = true;
+      saveMaterialReceiptPreview().catch(error => {
+        if(status) status.textContent = '';
+        alert(error.message);
+      }).finally(() => {
+        if(button) button.disabled = !canEditCurrentReport();
+      });
+    });
+    $('reportContainer')?.addEventListener('input', event => {
+      if(event.target.matches('.materials-preview-field, [data-material-receipt-observations], [data-receipt-signer-field]')){
+        if(event.target.matches('textarea.materials-preview-multiline')){
+          resizeMaterialReceiptTextarea(event.target);
+        }
+        const status = $('materialReceiptPreviewSaveStatus');
+        if(status) status.textContent = 'Hay cambios sin guardar.';
+      }
+    });
+    $('reportContainer')?.addEventListener('change', event => {
+      if(event.target.matches('[name="materialsReceiptConformity"]')){
+        const status = $('materialReceiptPreviewSaveStatus');
+        if(status) status.textContent = 'Hay cambios sin guardar.';
+      }
+    });
     $('addEquipmentBtn')?.addEventListener('click', async () => {
       if(!ensureCanEditReport('No tienes permisos para modificar este reporte.')){
         return;
@@ -4589,12 +5717,15 @@
       const itemName = $('equipmentName')?.value.trim();
       const buildingLocation = $('equipmentBuilding')?.value.trim();
       const quantity = Math.max(1, Number($('equipmentQuantity')?.value || 1));
-      const status = $('equipmentStatusSelect')?.value || 'Recepción';
+      const equipmentStatus = $('equipmentStatusSelect')?.value || 'Recepción';
+      const unit = $('equipmentUnit')?.value.trim() || '';
+      const condition = $('equipmentCondition')?.value || equipmentStatus;
+      const status = isMaterialReceiptReport() ? condition : equipmentStatus;
       const comments = $('equipmentComments')?.value.trim();
       const files = getEquipmentPhotoFiles();
       const project = getCurrentProject();
       if(!itemName){
-        alert('Ingresa el tipo o nombre del equipo.');
+        alert(isMaterialReceiptReport() ? 'Ingresa la descripción del material.' : 'Ingresa el tipo o nombre del equipo.');
         $('equipmentName')?.focus();
         return;
       }
@@ -4602,7 +5733,7 @@
         alert('Primero guarda el reporte antes de registrar equipos.');
         return;
       }
-      if(!state.editingEntryId && !files.length){
+      if(!isMaterialReceiptReport() && !state.editingEntryId && !files.length){
         alert('Agrega una foto del equipo.');
         return;
       }
@@ -4613,6 +5744,8 @@
         formData.append('itemName', itemName);
         formData.append('buildingLocation', buildingLocation);
         formData.append('quantity', String(quantity));
+        formData.append('unit', unit);
+        formData.append('condition', condition);
         formData.append('status', status);
         formData.append('desc', comments);
         if(state.editingEntryId != null && files.length){
@@ -4718,7 +5851,7 @@
     });
     document.querySelectorAll('.togglePreviewBtn').forEach(btn => btn.addEventListener('click', () => {
       state.workspaceView = state.workspaceView === 'preview'
-        ? (isEquipmentReport() ? 'equipment' : 'fronts')
+        ? (isInventoryReport() ? 'equipment' : 'fronts')
         : 'preview';
       state.showPreviewMode = state.workspaceView === 'preview';
       save();
@@ -4739,7 +5872,7 @@
     $('cancelEntryEditBtn')?.addEventListener('click', () => { resetEntryEditor(); save(); renderAll(); });
     $('backFromIssueFormBtn')?.addEventListener('click', () => { resetEntryEditor(); save(); renderAll(); });
     $('chooseIssuePlanPointBtn')?.addEventListener('click', async () => {
-      if(isEquipmentReport()) return;
+      if(isInventoryReport()) return;
       const project = getCurrentProject();
       const plans = project?.plans || [];
       if(!plans.length){ alert('Primero sube un plano en la pestaña Planos del proyecto.'); return; }
@@ -4864,7 +5997,7 @@
     });
     $('exportPdfBtn')?.addEventListener('click', async () => {
       const button = $('exportPdfBtn');
-      const mode = $('exportPdfMode')?.value || 'capture';
+      const mode = $('exportPdfMode')?.value || 'real';
       const originalLabel = button?.innerHTML || '';
       if(button){
         button.disabled = true;
@@ -4897,7 +6030,55 @@
   });
 
   document.addEventListener('DOMContentLoaded', () => {
-    load();
+  const sharedData = document.getElementById('sharedReceiptPreviewData');
+  if(sharedData){
+    try {
+      sharedReceiptPreview = JSON.parse(sharedData.textContent || '{}');
+    } catch(error) {
+      console.error('No se pudo leer el acta compartida.', error);
+      return;
+    }
+    const project = sharedReceiptPreview.project;
+    const report = sharedReceiptPreview.report;
+    if(!project || !report){
+      console.error('Faltan datos para mostrar el acta compartida.');
+      return;
+    }
+    state.projects = [{ ...project, reports: [report] }];
+    state.currentProjectId = project.id;
+    state.currentReportId = report.id;
+    state.projectName = project.projectName || '';
+    state.projectLocation = project.projectLocation || '';
+    state.reportType = report.type || 'materiales';
+    state.reportTitle = report.title || 'Acta de entrega de materiales';
+    state.reportDate = report.date || '';
+    state.reportWeek = report.week || '';
+    state.entries = [...(report.entries || [])];
+    state.materialReceipt = {
+      ...emptyMaterialReceipt(),
+      ...(report.materialReceipt || {}),
+      signatures: { ...emptyMaterialReceipt().signatures, ...(report.materialReceipt?.signatures || {}) }
+    };
+    renderReport();
+    const sharedPdfButton = document.getElementById('downloadSharedReceiptPdfBtn');
+    sharedPdfButton?.addEventListener('click', async () => {
+      sharedPdfButton.disabled = true;
+      const originalLabel = sharedPdfButton.textContent;
+      sharedPdfButton.textContent = 'Generando PDF...';
+      try {
+        const pdf = await generateReportPdf();
+        pdf.save(buildPdfFileName());
+      } catch(error) {
+        console.error('No se pudo exportar el acta compartida.', error);
+        alert(error.message || 'No se pudo exportar el PDF.');
+      } finally {
+        sharedPdfButton.disabled = false;
+        sharedPdfButton.textContent = originalLabel;
+      }
+    });
+    return;
+  }
+  load();
     bindEvents();
     updateSelectionScreenSections();
     fetchProjectsFromServer();
