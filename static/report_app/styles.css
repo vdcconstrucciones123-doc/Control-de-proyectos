@@ -5692,3 +5692,10 @@ body:not(.sidebar-collapse) .app-main {
     padding: 0 !important;
   }
 }
+body[data-public-report-share="true"] #sidebarDashboardGroup,
+body[data-public-report-share="true"] .app-header-profile,
+body[data-public-report-share="true"] .sidebar-logout-form,
+body[data-public-report-share="true"] #deleteCurrentReportBtn,
+body[data-public-report-share="true"] [data-report-delete] {
+  display: none !important;
+}

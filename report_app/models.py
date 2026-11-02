@@ -182,6 +182,20 @@ class ProjectReport(models.Model):
         return self.title or f"Reporte {self.pk}"
 
 
+class PublicReportShare(models.Model):
+    report = models.OneToOneField(ProjectReport, on_delete=models.CASCADE, related_name="public_share")
+    token = models.CharField(max_length=64, unique=True)
+    password_hash = models.CharField(max_length=128)
+    is_active = models.BooleanField(default=True)
+    access_version = models.PositiveIntegerField(default=1)
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Enlace público · {self.report}"
+
+
 class ReportMembership(models.Model):
     report = models.ForeignKey(ProjectReport, on_delete=models.CASCADE, related_name="memberships")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="report_memberships")

@@ -7,6 +7,7 @@ import zipfile
 from io import BytesIO
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta
+from functools import wraps
 from base64 import b64decode
 from binascii import Error as Base64DecodeError
 from html import escape as escape_html
@@ -19,7 +20,7 @@ from django.contrib.auth import login
 from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.contrib.auth.views import LoginView
+from django.contrib.auth.views import LoginView, redirect_to_login
 from django.contrib.staticfiles import finders
 from django.core import signing
 from django.core.files.base import ContentFile
@@ -44,6 +45,7 @@ from .models import (
     ProjectPlan,
     ProjectPlanMarker,
     ProjectReport,
+    PublicReportShare,
     ReportEntry,
     ReportFront,
     ReportMembership,
@@ -56,6 +58,7 @@ ROLE_LABELS = dict(ProjectMembership.ROLE_CHOICES)
 PROGRESS_ENTRY_STATUSES = {"En proceso", "Terminado", "Pendiente", "Observado"}
 INCIDENT_ENTRY_STATUSES = {"Abierto", "Cerrado", "Borrador"}
 MATERIAL_CONDITIONS = {"Conforme", "Observado", "Dañado", "Pendiente"}
+MAX_PUBLIC_IMAGE_PIXELS = 20_000_000
 MATERIAL_RECEIPT_SHARE_SIGNERS = {
     "delivered": {
         "label": "ENTREGA – UNIVERSIDAD DE LIMA",
@@ -379,6 +382,29 @@ def _request_data(request):
     return request.POST
 
 
+def _validate_public_report_images(uploaded_images, max_count=10):
+    if len(uploaded_images) > max_count:
+        return f"Puedes subir hasta {max_count} fotos por vez."
+
+    from PIL import Image, UnidentifiedImageError
+
+    allowed_formats = {"JPEG", "PNG", "WEBP"}
+    for uploaded_image in uploaded_images:
+        if not (uploaded_image.content_type or "").startswith("image/") or uploaded_image.size > 5 * 1024 * 1024:
+            return "Cada foto debe ser una imagen de hasta 5 MB."
+        try:
+            image = Image.open(uploaded_image)
+            if image.width * image.height > MAX_PUBLIC_IMAGE_PIXELS:
+                return "La foto tiene demasiada resolución."
+            image.verify()
+        except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+            return "Una de las fotos seleccionadas no es una imagen válida."
+        if image.format not in allowed_formats:
+            return "Las fotos deben estar en formato PNG, JPEG o WebP."
+        uploaded_image.seek(0)
+    return None
+
+
 def _coerce_date(value):
     if not value:
         return None
@@ -689,6 +715,98 @@ def _get_user_report_or_404(project, user, report_id):
     return report
 
 
+PUBLIC_REPORT_SHARE_SESSION_TOKEN = "public_report_share_token"
+PUBLIC_REPORT_SHARE_SESSION_VERSION = "public_report_share_version"
+
+
+def _public_report_share_for_request(request):
+    token = request.session.get(PUBLIC_REPORT_SHARE_SESSION_TOKEN)
+    version = request.session.get(PUBLIC_REPORT_SHARE_SESSION_VERSION)
+    if not token or version is None:
+        return None
+
+    share = PublicReportShare.objects.select_related("report__project").filter(
+        token=token,
+        is_active=True,
+        access_version=version,
+    ).first()
+    if share is None:
+        request.session.pop(PUBLIC_REPORT_SHARE_SESSION_TOKEN, None)
+        request.session.pop(PUBLIC_REPORT_SHARE_SESSION_VERSION, None)
+    return share
+
+
+def _report_access_required(view):
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if not request.user.is_authenticated and not _public_report_share_for_request(request):
+            return redirect_to_login(request.get_full_path())
+        return view(request, *args, **kwargs)
+    return wrapped
+
+
+def _private_no_store(response):
+    response["Cache-Control"] = "private, no-store"
+    return response
+
+
+def _report_access_for_request(request, project_slug, report_id):
+    share = None if request.user.is_authenticated else _public_report_share_for_request(request)
+    if share:
+        if share.report.project.slug != project_slug or share.report_id != report_id:
+            raise Http404()
+        return share.report.project, share.report, True
+    if not request.user.is_authenticated:
+        raise Http404()
+    project = _get_project_or_404(request.user, project_slug)
+    report = _get_user_report_or_404(project, request.user, report_id)
+    return project, report, False
+
+
+def _serialize_public_report_project(share):
+    project = share.report.project
+    owner_display = project.owner.get_full_name().strip() or project.owner.username
+    report_data = _serialize_report(share.report, project.owner)
+    report_data["members"] = []
+    report_data["canShare"] = False
+    report_data["canEdit"] = True
+    report_data["accessRole"] = ProjectMembership.ROLE_EDITOR
+    linked_plan_ids = share.report.entries.exclude(plan_id__isnull=True).values_list("plan_id", flat=True).distinct()
+    plans = project.plans.filter(pk__in=linked_plan_ids).prefetch_related("markers")
+    return {
+        "id": project.id,
+        "dbId": project.id,
+        "slug": project.slug,
+        "companyName": project.company_name,
+        "projectName": project.project_name,
+        "projectLocation": project.project_location,
+        "projectImage": project.project_image.url if project.project_image else "",
+        "plans": [{
+            "id": plan.id,
+            "name": plan.name or plan.file.name.rsplit("/", 1)[-1],
+            "url": _project_plan_url(project, plan),
+            "createdAt": plan.created_at.isoformat(),
+            "markers": [{"id": marker.id, "page": marker.page, "x": marker.x, "y": marker.y} for marker in plan.markers.all()],
+        } for plan in plans],
+        "reportTitle": project.report_title,
+        "forWhom": project.for_whom,
+        "fromWhom": project.from_whom,
+        "responsibleCompanies": project.responsible_companies or [],
+        "ownerUsername": project.owner.username,
+        "ownerDisplayName": owner_display,
+        "sharedByUsername": project.owner.username,
+        "sharedByDisplayName": owner_display,
+        "accessRole": ProjectMembership.ROLE_EDITOR,
+        "accessRoleLabel": ROLE_LABELS[ProjectMembership.ROLE_EDITOR],
+        "canEdit": True,
+        "canShare": False,
+        "canDelete": False,
+        "isOwned": False,
+        "members": [],
+        "reports": [report_data],
+    }
+
+
 def _get_site_branding():
     return SiteBranding.objects.order_by("-updated_at", "-created_at").first()
 
@@ -721,8 +839,18 @@ def _apply_report_payload(report, payload, files=None):
         report.cover_image = files["coverPhoto"]
 
 
-@login_required
 def home(request, project_slug=None, report_id=None, front_id=None, new_report=False, new_project=False, edit_project=False):
+    public_share = None
+    if not request.user.is_authenticated:
+        public_share = _public_report_share_for_request(request)
+        if not public_share:
+            return redirect_to_login(request.get_full_path())
+        if (
+            public_share.report.project.slug != project_slug
+            or public_share.report_id != report_id
+        ):
+            raise Http404()
+
     context = {
         "project_form": ProjectForm(),
         "report_form": ReportMetaForm(),
@@ -733,10 +861,60 @@ def home(request, project_slug=None, report_id=None, front_id=None, new_report=F
         "new_report": new_report,
         "new_project": new_project,
         "edit_project": edit_project,
+        "public_share": public_share,
     }
     if project_slug:
         context["project_slug"] = project_slug
-    return render(request, "report_app/home.html", context)
+    response = render(request, "report_app/home.html", context)
+    return _private_no_store(response) if public_share else response
+
+
+@require_http_methods(["GET", "POST"])
+@ensure_csrf_cookie
+def public_report_share(request, share_token):
+    share = get_object_or_404(
+        PublicReportShare.objects.select_related("report__project"),
+        token=share_token,
+        is_active=True,
+    )
+
+    if request.method == "POST":
+        if share.locked_until and share.locked_until > timezone.now():
+            return _private_no_store(render(request, "report_app/public_report_share.html", {
+                "site_branding": _get_site_branding(),
+                "share_token": share_token,
+                "error": "Se alcanzó el límite de intentos. Prueba nuevamente más tarde.",
+                "locked": True,
+            }, status=429))
+
+        password = request.POST.get("password", "")
+        if not check_password(password, share.password_hash):
+            share.failed_attempts += 1
+            if share.failed_attempts >= 5:
+                share.failed_attempts = 0
+                share.locked_until = timezone.now() + timedelta(minutes=15)
+            share.save(update_fields=["failed_attempts", "locked_until", "updated_at"])
+            return _private_no_store(render(request, "report_app/public_report_share.html", {
+                "site_branding": _get_site_branding(),
+                "share_token": share_token,
+                "error": "La contraseña no es correcta.",
+            }, status=401))
+
+        share.failed_attempts = 0
+        share.locked_until = None
+        share.save(update_fields=["failed_attempts", "locked_until", "updated_at"])
+        request.session.cycle_key()
+        request.session[PUBLIC_REPORT_SHARE_SESSION_TOKEN] = share.token
+        request.session[PUBLIC_REPORT_SHARE_SESSION_VERSION] = share.access_version
+        return redirect("reporte_detail", project_slug=share.report.project.slug, report_id=share.report_id)
+
+    existing_share = _public_report_share_for_request(request)
+    if existing_share and existing_share.pk == share.pk:
+        return redirect("reporte_detail", project_slug=share.report.project.slug, report_id=share.report_id)
+    return _private_no_store(render(request, "report_app/public_report_share.html", {
+        "site_branding": _get_site_branding(),
+        "share_token": share_token,
+    }))
 
 
 @login_required
@@ -797,9 +975,16 @@ class CustomLoginView(LoginView):
         return super().form_valid(form)
 
 
-@login_required
 @require_http_methods(["GET", "POST"])
 def project_collection_api(request):
+    if not request.user.is_authenticated:
+        share = _public_report_share_for_request(request)
+        if not share:
+            return redirect_to_login(request.get_full_path())
+        if request.method != "GET":
+            return JsonResponse({"error": "Inicia sesión para continuar."}, status=403)
+        return _private_no_store(JsonResponse({"projects": [_serialize_public_report_project(share)]}))
+
     profile = getattr(request.user, "profile", None)
     if not request.user.is_superuser and profile and not profile.is_approved:
         return JsonResponse({"error": "Tu cuenta está pendiente de aprobación."}, status=403)
@@ -891,10 +1076,19 @@ def project_plans_api(request, project_slug):
         }}, status=201)
 
 
-@login_required
 @require_http_methods(["GET"])
 def project_plan_file_api(request, project_slug, plan_id):
-    project = _get_project_or_404(request.user, project_slug)
+    if request.user.is_authenticated:
+        project = _get_project_or_404(request.user, project_slug)
+    else:
+        share = _public_report_share_for_request(request)
+        if not share:
+            return redirect_to_login(request.get_full_path())
+        if share.report.project.slug != project_slug:
+            raise Http404()
+        project = share.report.project
+        if not share.report.entries.filter(plan_id=plan_id).exists():
+            raise Http404()
     plan = get_object_or_404(project.plans, pk=plan_id)
     try:
         if getattr(settings, "USE_CLOUDINARY", False):
@@ -926,7 +1120,7 @@ def project_plan_file_api(request, project_slug, plan_id):
     response["Content-Disposition"] = f'inline; filename="{filename}"'
     response["Content-Length"] = str(len(file_content))
     response["X-Content-Type-Options"] = "nosniff"
-    return response
+    return response if request.user.is_authenticated else _private_no_store(response)
 
 
 @login_required
@@ -1150,13 +1344,17 @@ def project_reports_api(request, project_slug):
     return JsonResponse({"report": _serialize_report(report, request.user)}, status=201)
 
 
-@login_required
+@_report_access_required
 @require_http_methods(["POST"])
 def project_report_update_api(request, project_slug, report_id):
-    project = _get_project_or_404(request.user, project_slug)
-    report = _get_user_report_or_404(project, request.user, report_id)
-    if not _can_edit_report(report, request.user):
+    project, report, is_public_share = _report_access_for_request(request, project_slug, report_id)
+    if not is_public_share and not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para editar este reporte."}, status=403)
+
+    if is_public_share and request.FILES.get("coverPhoto"):
+        image_error = _validate_public_report_images([request.FILES["coverPhoto"]], max_count=1)
+        if image_error:
+            return JsonResponse({"error": image_error}, status=400)
 
     payload = _request_data(request)
     if payload is None:
@@ -1165,17 +1363,83 @@ def project_report_update_api(request, project_slug, report_id):
     report.save()
     if report.report_type == ProjectReport.TYPE_MATERIAL_RECEIPT:
         MaterialReceipt.objects.get_or_create(report=report)
-    return JsonResponse({"report": _serialize_report(report, request.user)})
+    serializer_user = project.owner if is_public_share else request.user
+    serialized_report = _serialize_report(report, serializer_user)
+    if is_public_share:
+        serialized_report.update({
+            "members": [],
+            "canShare": False,
+            "canEdit": True,
+            "accessRole": ProjectMembership.ROLE_EDITOR,
+        })
+    return JsonResponse({"report": serialized_report})
 
 
 @login_required
-@require_http_methods(["POST"])
-def material_receipt_api(request, project_slug, report_id):
+@require_http_methods(["GET", "POST", "DELETE"])
+def public_report_share_api(request, project_slug, report_id):
     project = _get_project_or_404(request.user, project_slug)
     report = _get_user_report_or_404(project, request.user, report_id)
+    if not _can_share_report(report, request.user):
+        return JsonResponse({"error": "Solo un administrador del reporte puede crear este enlace."}, status=403)
+
+    share = PublicReportShare.objects.filter(report=report).first()
+    if request.method == "GET":
+        share_url = ""
+        if share and share.is_active:
+            share_url = request.build_absolute_uri(reverse(
+                "public_report_share",
+                kwargs={"share_token": share.token},
+            ))
+        return JsonResponse({"configured": bool(share and share.is_active), "shareUrl": share_url})
+
+    if request.method == "DELETE":
+        if share and share.is_active:
+            share.is_active = False
+            share.access_version += 1
+            share.save(update_fields=["is_active", "access_version", "updated_at"])
+        return JsonResponse({"configured": False})
+
+    payload = _parse_json(request)
+    if payload is None:
+        return HttpResponseBadRequest("JSON inválido")
+    password = str(payload.get("password") or "")
+    if len(password) < 8:
+        return JsonResponse({"error": "La contraseña debe tener al menos 8 caracteres."}, status=400)
+    if len(password) > 128:
+        return JsonResponse({"error": "La contraseña no puede superar 128 caracteres."}, status=400)
+
+    if share is None:
+        share = PublicReportShare(
+            report=report,
+            token=secrets.token_urlsafe(32),
+            password_hash=make_password(password),
+        )
+    else:
+        if not share.is_active:
+            share.token = secrets.token_urlsafe(32)
+        share.password_hash = make_password(password)
+        share.is_active = True
+        share.access_version += 1
+        share.failed_attempts = 0
+        share.locked_until = None
+    share.save()
+    return JsonResponse({
+        "configured": True,
+        "shareUrl": request.build_absolute_uri(reverse(
+            "public_report_share",
+            kwargs={"share_token": share.token},
+        )),
+    })
+
+
+@_report_access_required
+@require_http_methods(["POST"])
+def material_receipt_api(request, project_slug, report_id):
+    project, report, is_public_share = _report_access_for_request(request, project_slug, report_id)
     if report.report_type != ProjectReport.TYPE_MATERIAL_RECEIPT:
         return JsonResponse({"error": "Este reporte no es un acta de recepción de materiales."}, status=400)
-    if not _can_edit_report(report, request.user):
+    if not is_public_share and not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para editar esta acta."}, status=403)
 
     payload = _request_data(request)
@@ -1221,7 +1485,7 @@ def material_receipt_api(request, project_slug, report_id):
         if request.FILES.get(payload_key)
         or payload.get(f"clear{payload_key[0].upper()}{payload_key[1:]}") in {True, "true", "1", 1}
     ]
-    if _material_receipt_share_configured(receipt) and shared_signature_changes:
+    if _material_receipt_share_configured(receipt) and shared_signature_changes and not is_public_share:
         if report.project.owner_id != request.user.id:
             return JsonResponse({
                 "error": "Solo quien creó el proyecto puede agregar, cambiar o quitar firmas del acta compartida."
@@ -1253,6 +1517,8 @@ def material_receipt_api(request, project_slug, report_id):
 
             try:
                 image = Image.open(uploaded_file)
+                if image.width * image.height > MAX_PUBLIC_IMAGE_PIXELS:
+                    return JsonResponse({"error": "La firma tiene demasiada resolución."}, status=400)
                 image.verify()
             except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
                 return JsonResponse({"error": "El archivo de firma no contiene una imagen válida."}, status=400)
@@ -1281,6 +1547,8 @@ def material_receipt_api(request, project_slug, report_id):
 
         try:
             image = Image.open(company_logo)
+            if image.width * image.height > MAX_PUBLIC_IMAGE_PIXELS:
+                return JsonResponse({"error": "El logo tiene demasiada resolución."}, status=400)
             image.verify()
         except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
             return JsonResponse({"error": "El archivo del logo no contiene una imagen válida."}, status=400)
@@ -1300,11 +1568,10 @@ def material_receipt_api(request, project_slug, report_id):
     return JsonResponse({"materialReceipt": _serialize_material_receipt(report)})
 
 
-@login_required
+@_report_access_required
 @require_http_methods(["GET", "POST"])
 def material_receipt_photos_api(request, project_slug, report_id):
-    project = _get_project_or_404(request.user, project_slug)
-    report = _get_user_report_or_404(project, request.user, report_id)
+    _, report, is_public_share = _report_access_for_request(request, project_slug, report_id)
     if report.report_type != ProjectReport.TYPE_MATERIAL_RECEIPT:
         return JsonResponse({"error": "Este reporte no es un acta de recepción de materiales."}, status=400)
 
@@ -1314,8 +1581,9 @@ def material_receipt_photos_api(request, project_slug, report_id):
             {"id": photo.pk, "url": photo.image.url, "name": photo.image.name.rsplit("/", 1)[-1]}
             for photo in receipt.photos.all()
         ] if receipt else []
-        return JsonResponse({"photos": photos})
-    if not _can_edit_report(report, request.user):
+        response = JsonResponse({"photos": photos})
+        return _private_no_store(response) if is_public_share else response
+    if not is_public_share and not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para editar este reporte."}, status=403)
     receipt, _ = MaterialReceipt.objects.get_or_create(report=report)
 
@@ -1333,6 +1601,8 @@ def material_receipt_photos_api(request, project_slug, report_id):
             return JsonResponse({"error": "Cada foto debe ser una imagen de hasta 5 MB."}, status=400)
         try:
             image = Image.open(uploaded_photo)
+            if image.width * image.height > MAX_PUBLIC_IMAGE_PIXELS:
+                return JsonResponse({"error": "Una foto tiene demasiada resolución."}, status=400)
             image.verify()
         except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
             return JsonResponse({"error": "Una de las fotos seleccionadas no es una imagen válida."}, status=400)
@@ -1351,14 +1621,13 @@ def material_receipt_photos_api(request, project_slug, report_id):
     return JsonResponse({"photos": _serialize_material_receipt(report)["photos"]}, status=201)
 
 
-@login_required
+@_report_access_required
 @require_http_methods(["DELETE"])
 def material_receipt_photo_detail_api(request, project_slug, report_id, photo_id):
-    project = _get_project_or_404(request.user, project_slug)
-    report = _get_user_report_or_404(project, request.user, report_id)
+    _, report, is_public_share = _report_access_for_request(request, project_slug, report_id)
     if report.report_type != ProjectReport.TYPE_MATERIAL_RECEIPT:
         return JsonResponse({"error": "Este reporte no es un acta de recepción de materiales."}, status=400)
-    if not _can_edit_report(report, request.user):
+    if not is_public_share and not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para editar este reporte."}, status=403)
 
     receipt = get_object_or_404(MaterialReceipt, report=report)
@@ -1681,6 +1950,8 @@ def _validate_receipt_signature(uploaded_file):
 
     try:
         image = Image.open(uploaded_file)
+        if image.width * image.height > MAX_PUBLIC_IMAGE_PIXELS:
+            return "La firma tiene demasiada resolución."
         image.verify()
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
         return "El archivo de firma no contiene una imagen válida."
@@ -2827,12 +3098,11 @@ def report_members_api(request, project_slug, report_id):
     return JsonResponse({"members": _serialize_report_members(report)})
 
 
-@login_required
+@_report_access_required
 @require_http_methods(["POST"])
 def report_fronts_api(request, project_slug, report_id):
-    project = _get_project_or_404(request.user, project_slug)
-    report = _get_user_report_or_404(project, request.user, report_id)
-    if not _can_edit_report(report, request.user):
+    _, report, is_public_share = _report_access_for_request(request, project_slug, report_id)
+    if not is_public_share and not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para editar este reporte."}, status=403)
 
     payload = _parse_json(request)
@@ -2846,15 +3116,14 @@ def report_fronts_api(request, project_slug, report_id):
     return JsonResponse({"front": {"id": front.id, "name": front.name}}, status=201)
 
 
-@login_required
+@_report_access_required
 @require_http_methods(["POST", "DELETE"])
 def report_front_detail_api(request, project_slug, report_id, front_id):
-    project = _get_project_or_404(request.user, project_slug)
-    report = _get_user_report_or_404(project, request.user, report_id)
+    _, report, is_public_share = _report_access_for_request(request, project_slug, report_id)
     front = get_object_or_404(report.fronts.all(), pk=front_id)
 
     if request.method == "POST":
-        if not _can_edit_report(report, request.user):
+        if not is_public_share and not _can_edit_report(report, request.user):
             return JsonResponse({"error": "No tienes permisos para editar frentes en este reporte."}, status=403)
         payload = _parse_json(request)
         if payload is None:
@@ -2866,19 +3135,23 @@ def report_front_detail_api(request, project_slug, report_id, front_id):
         front.save(update_fields=["name"])
         return JsonResponse({"front": {"id": front.id, "name": front.name}})
 
-    if not _can_edit_report(report, request.user):
+    if not is_public_share and not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para eliminar frentes en este reporte."}, status=403)
     front.delete()
     return JsonResponse({"ok": True})
 
 
-@login_required
+@_report_access_required
 @require_http_methods(["POST"])
 def report_entries_api(request, project_slug, report_id):
-    project = _get_project_or_404(request.user, project_slug)
-    report = _get_user_report_or_404(project, request.user, report_id)
-    if not _can_edit_report(report, request.user):
+    project, report, is_public_share = _report_access_for_request(request, project_slug, report_id)
+    if not is_public_share and not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para crear issues en este reporte."}, status=403)
+    if is_public_share:
+        image_limit = 1 if report.report_type in {ProjectReport.TYPE_EQUIPMENT, ProjectReport.TYPE_MATERIAL_RECEIPT} else 10
+        image_error = _validate_public_report_images(request.FILES.getlist("images"), max_count=image_limit)
+        if image_error:
+            return JsonResponse({"error": image_error}, status=400)
 
     payload = _request_data(request)
     if payload is None:
@@ -2972,13 +3245,12 @@ def report_entries_api(request, project_slug, report_id):
     return JsonResponse({"entry": _serialize_entry(entry)}, status=201)
 
 
-@login_required
+@_report_access_required
 @require_http_methods(["POST", "DELETE"])
 def report_entry_detail_api(request, project_slug, report_id, entry_id):
-    project = _get_project_or_404(request.user, project_slug)
-    report = _get_user_report_or_404(project, request.user, report_id)
+    project, report, is_public_share = _report_access_for_request(request, project_slug, report_id)
     entry = get_object_or_404(report.entries.prefetch_related("images"), pk=entry_id)
-    if not _can_edit_report(report, request.user):
+    if not is_public_share and not _can_edit_report(report, request.user):
         return JsonResponse({"error": "No tienes permisos para modificar este issue."}, status=403)
 
     if request.method == "DELETE":
@@ -2988,6 +3260,11 @@ def report_entry_detail_api(request, project_slug, report_id, entry_id):
     payload = _request_data(request)
     if payload is None:
         return HttpResponseBadRequest("Datos inválidos")
+    if is_public_share:
+        image_limit = 1 if report.report_type in {ProjectReport.TYPE_EQUIPMENT, ProjectReport.TYPE_MATERIAL_RECEIPT} else 10
+        image_error = _validate_public_report_images(request.FILES.getlist("images"), max_count=image_limit)
+        if image_error:
+            return JsonResponse({"error": image_error}, status=400)
     front_id = payload.get("frontId") or entry.front_id
     status = (payload.get("status") or entry.status).strip()
     description = (payload.get("desc") or entry.description or "").strip()

@@ -1,5 +1,6 @@
 (function(){
   const currentUser = document.body?.dataset?.currentUser || 'guest';
+  const isPublicSharedReport = document.body?.dataset?.publicReportShare === 'true';
   const storageKey = `siteAuditLite_v1_${currentUser}`;
   const storageMetaKey = 'siteAuditLite_v1_meta';
   const PROJECT_ROLE_LABELS = {
@@ -535,6 +536,17 @@
       const remoteProjects = Array.isArray(data.projects) ? data.projects : [];
       state.projects = remoteProjects.map(project => ({ ...project, currentReportId: project.currentReportId || project.reports?.[0]?.id || null }));
       const routeInfo = getRouteInfo();
+      if(isPublicSharedReport && state.projects.length === 1){
+        const sharedProject = state.projects[0];
+        const sharedReportId = Number(window.INIT_REPORT_ID) || sharedProject.reports?.[0]?.id;
+        state.currentProjectId = sharedProject.id;
+        state.currentReportId = sharedReportId || null;
+        sharedProject.currentReportId = sharedReportId || null;
+        state.selectionStage = 'reportType';
+        state.showProjectForm = false;
+        state.existingReportOpen = true;
+        state.reportMetaComplete = true;
+      }
       const activeProject = getCurrentProject();
       if(activeProject){
         if((routeInfo.onReportPath || routeInfo.onFrontPath) && routeInfo.reportId
@@ -1642,7 +1654,9 @@
     renderAll();
     updateSelectionScreenSections();
 
-    if(routeInfo.onNewProjectPath || window.INIT_NEW_PROJECT){
+    if(isPublicSharedReport){
+      showAppScreen();
+    } else if(routeInfo.onNewProjectPath || window.INIT_NEW_PROJECT){
       setNewProjectRoute({ replace: true });
       showSelectionScreen();
     } else if((routeInfo.onEditProjectPath || window.INIT_EDIT_PROJECT) && state.currentProjectId){
@@ -2367,6 +2381,10 @@
     const deleteCurrentReportBtn = $('deleteCurrentReportBtn');
     const editCurrentReportBtn = $('editCurrentReportBtn');
     const currentReport = getCurrentReport();
+    $('sharePublicReportBtn')?.classList.toggle(
+      'd-none',
+      isPublicSharedReport || !isOnReportWorkspaceRoute() || !currentReport?.canShare
+    );
     if(deleteCurrentReportBtn){
       deleteCurrentReportBtn.classList.toggle('d-none', !isOnReportWorkspaceRoute() || !currentReport?.canEdit);
     }
@@ -2383,15 +2401,15 @@
         helperText.classList.remove('d-none');
       }
     }
-    $('exportPdfBtn')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
-    $('exportPdfMode')?.classList.toggle('d-none', !isOnReportWorkspaceRoute());
+    $('exportPdfBtn')?.classList.toggle('d-none', isPublicSharedReport || !isOnReportWorkspaceRoute());
+    $('exportPdfMode')?.classList.toggle('d-none', isPublicSharedReport || !isOnReportWorkspaceRoute());
     renderReportEditorSections();
     const receiptPreviewSaveButton = $('saveMaterialReceiptPreviewBtn');
     receiptPreviewSaveButton?.classList.toggle('d-none', !isMaterialReceiptReport() || !state.showPreviewMode);
     if(receiptPreviewSaveButton) receiptPreviewSaveButton.disabled = !canEditCurrentReport();
     $('openMaterialReceiptWordEditorBtn')?.classList.toggle(
       'd-none',
-      !isMaterialReceiptReport() || !state.showPreviewMode || !canEditCurrentReport()
+      isPublicSharedReport || !isMaterialReceiptReport() || !state.showPreviewMode || !canEditCurrentReport()
     );
     renderReportTypeUi();
     applyWorkspaceView();
@@ -2587,6 +2605,7 @@
       fillablePdfButton.href = state.currentReportId && currentProject?.slug
         ? `/proyecto/${encodeURIComponent(currentProject.slug)}/reporte/${state.currentReportId}/pdf-rellenable/`
         : fillablePdfButton.dataset.templateUrl || fillablePdfButton.href;
+      fillablePdfButton.classList.toggle('d-none', isPublicSharedReport);
     }
     renderMaterialReceiptPhotoList();
     shareButton?.classList.toggle(
@@ -2879,6 +2898,96 @@
       status.textContent = error.message;
     } finally {
       saveButton.disabled = false;
+    }
+  }
+
+  function publicReportShareApiUrl(){
+    const project = getCurrentProject();
+    if(!project || !state.currentReportId) throw new Error('Primero guarda el reporte para compartirlo.');
+    return `/api/projects/${project.slug}/reports/${state.currentReportId}/public-share/`;
+  }
+
+  async function openPublicReportShareDialog(){
+    if(!ensureCanEditReport('Solo un administrador puede compartir este reporte.')) return;
+    const dialog = $('publicReportShareDialog');
+    const form = $('publicReportShareForm');
+    const password = $('publicReportSharePassword');
+    const linkSection = $('publicReportShareLinkSection');
+    const status = $('publicReportShareStatus');
+    const saveButton = $('savePublicReportShareBtn');
+    const revokeButton = $('revokePublicReportShareBtn');
+    if(!dialog || !form) return;
+
+    password.required = true;
+    password.value = '';
+    linkSection.classList.add('d-none');
+    revokeButton.classList.add('d-none');
+    status.textContent = 'Consultando el enlace…';
+    dialog.showModal();
+    try {
+      const data = await requestJson(publicReportShareApiUrl(), { method: 'GET' });
+      if(data.configured && data.shareUrl){
+        $('publicReportShareUrl').value = data.shareUrl;
+        linkSection.classList.remove('d-none');
+        revokeButton.classList.remove('d-none');
+        password.required = false;
+        saveButton.textContent = 'Cambiar contraseña';
+        status.textContent = 'El enlace está activo. Define una contraseña nueva solo si quieres cambiarla.';
+      } else {
+        $('publicReportShareUrl').value = '';
+        saveButton.textContent = 'Crear enlace';
+        status.textContent = 'Elige una contraseña para crear el enlace.';
+      }
+    } finally {
+      saveButton.disabled = false;
+    }
+  }
+
+  async function savePublicReportShare(event){
+    event.preventDefault();
+    const form = $('publicReportShareForm');
+    if(!form.reportValidity()) return;
+    const saveButton = $('savePublicReportShareBtn');
+    const status = $('publicReportShareStatus');
+    saveButton.disabled = true;
+    status.textContent = 'Guardando…';
+    try {
+      const data = await requestJson(publicReportShareApiUrl(), {
+        method: 'POST',
+        body: JSON.stringify({ password: $('publicReportSharePassword').value })
+      });
+      $('publicReportShareUrl').value = data.shareUrl;
+      $('publicReportSharePassword').value = '';
+      $('publicReportSharePassword').required = false;
+      $('publicReportShareLinkSection').classList.remove('d-none');
+      $('revokePublicReportShareBtn').classList.remove('d-none');
+      saveButton.textContent = 'Cambiar contraseña';
+      status.textContent = 'Enlace listo. Comparte la contraseña por separado.';
+    } catch(error) {
+      status.textContent = error.message;
+    } finally {
+      saveButton.disabled = false;
+    }
+  }
+
+  async function revokePublicReportShare(){
+    if(!window.confirm('¿Revocar el enlace? Las personas que lo tengan dejarán de acceder.')) return;
+    const button = $('revokePublicReportShareBtn');
+    const status = $('publicReportShareStatus');
+    button.disabled = true;
+    try {
+      await requestJson(publicReportShareApiUrl(), { method: 'DELETE' });
+      $('publicReportShareUrl').value = '';
+      $('publicReportSharePassword').value = '';
+      $('publicReportSharePassword').required = true;
+      $('publicReportShareLinkSection').classList.add('d-none');
+      button.classList.add('d-none');
+      $('savePublicReportShareBtn').textContent = 'Crear enlace';
+      status.textContent = 'Enlace revocado.';
+    } catch(error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
     }
   }
 
@@ -4235,7 +4344,9 @@
   }
 
   function bindEvents(){
-    loadProfile().catch(error => console.warn('No se pudo cargar el perfil', error));
+    if(!isPublicSharedReport){
+      loadProfile().catch(error => console.warn('No se pudo cargar el perfil', error));
+    }
     document.querySelectorAll('[data-widget="pushmenu"]').forEach(toggle => {
       toggle.addEventListener('click', toggleSidebarMenu);
     });
@@ -5556,6 +5667,26 @@
       } catch(error) {
         input.select();
         $('materialReceiptShareStatus').textContent = 'Selecciona y copia el enlace manualmente.';
+      }
+    });
+    $('sharePublicReportBtn')?.addEventListener('click', () => {
+      openPublicReportShareDialog().catch(error => alert(error.message));
+    });
+    $('publicReportShareForm')?.addEventListener('submit', savePublicReportShare);
+    $('publicReportShareDialog')?.addEventListener('click', event => {
+      if(event.target.closest('[data-close-public-report-share]')){
+        $('publicReportShareDialog').close();
+      }
+    });
+    $('revokePublicReportShareBtn')?.addEventListener('click', revokePublicReportShare);
+    $('copyPublicReportShareUrlBtn')?.addEventListener('click', async () => {
+      const input = $('publicReportShareUrl');
+      try {
+        await navigator.clipboard.writeText(input.value);
+        $('publicReportShareStatus').textContent = 'Enlace copiado.';
+      } catch(error) {
+        input.select();
+        $('publicReportShareStatus').textContent = 'Selecciona y copia el enlace manualmente.';
       }
     });
     const reportContainer = $('reportContainer');

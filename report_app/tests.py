@@ -6,7 +6,7 @@ from decimal import Decimal
 from urllib.parse import urlsplit
 
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -14,7 +14,7 @@ from django.test import override_settings
 from django.utils import timezone
 from PIL import Image
 
-from report_app.models import EntryImage, MaterialReceipt, MaterialReceiptPhoto, MobilityExpense, ProjectMembership, ProjectReport, ReportEntry, ReportFront, ReportMembership, ReportProject, UserProfile
+from report_app.models import EntryImage, MaterialReceipt, MaterialReceiptPhoto, MobilityExpense, ProjectMembership, ProjectReport, PublicReportShare, ReportEntry, ReportFront, ReportMembership, ReportProject, UserProfile
 
 
 class HomeViewTests(TestCase):
@@ -1783,3 +1783,142 @@ class MaterialReceiptViewTests(TestCase):
                 self.assertIn(b"Persona entrega", page_content)
                 self.assertIn(b"Persona valida", page_content)
                 self.assertIn(b"Persona recibe", page_content)
+
+
+class PublicReportSharingTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="public-share-owner", password="owner-password")
+        UserProfile.objects.update_or_create(user=self.owner, defaults={"is_approved": True})
+        self.project = ReportProject.objects.create(
+            owner=self.owner,
+            company_name="VDC",
+            project_name="Proyecto para compartir",
+        )
+        self.report = ProjectReport.objects.create(
+            project=self.project,
+            title="Reporte compartido",
+            report_type=ProjectReport.TYPE_PROGRESS,
+        )
+        self.other_report = ProjectReport.objects.create(
+            project=self.project,
+            title="Reporte privado",
+        )
+
+    def _create_share(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            reverse("public_report_share_api", args=[self.project.slug, self.report.id]),
+            data=json.dumps({"password": "reporte-seguro-123"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        share = PublicReportShare.objects.get(report=self.report)
+        self.client.logout()
+        return share, response.json()["shareUrl"]
+
+    def _open_public_report(self, share_url):
+        path = urlsplit(share_url).path
+        password_page = self.client.get(path)
+        self.assertEqual(password_page.status_code, 200)
+        return self.client.post(path, {"password": "reporte-seguro-123"})
+
+    @staticmethod
+    def _png_upload():
+        image_buffer = BytesIO()
+        Image.new("RGB", (4, 4), color="blue").save(image_buffer, format="PNG")
+        return SimpleUploadedFile("evidencia.png", image_buffer.getvalue(), content_type="image/png")
+
+    def test_password_share_is_limited_to_one_report_and_allows_photo_edits(self):
+        share, share_url = self._create_share()
+
+        invalid_password = self.client.post(
+            urlsplit(share_url).path,
+            {"password": "incorrecta"},
+        )
+        self.assertEqual(invalid_password.status_code, 401)
+        access_response = self._open_public_report(share_url)
+        self.assertEqual(access_response.status_code, 302)
+        self.assertEqual(
+            access_response["Location"],
+            reverse("reporte_detail", args=[self.project.slug, self.report.id]),
+        )
+
+        page_response = self.client.get(access_response["Location"])
+        self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, 'data-public-report-share="true"')
+
+        projects_response = self.client.get(reverse("project_collection_api"))
+        self.assertEqual(projects_response.status_code, 200)
+        projects = projects_response.json()["projects"]
+        self.assertEqual(len(projects), 1)
+        self.assertEqual([report["id"] for report in projects[0]["reports"]], [self.report.id])
+        self.assertEqual(projects[0]["reports"][0]["members"], [])
+
+        update_response = self.client.post(
+            reverse("project_report_update_api", args=[self.project.slug, self.report.id]),
+            {"reportTitle": "Reporte actualizado por enlace"},
+        )
+        self.assertEqual(update_response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.title, "Reporte actualizado por enlace")
+
+        front = ReportFront.objects.create(report=self.report, name="Frente público")
+        image = self._png_upload()
+        entry_response = self.client.post(
+            reverse("report_entries_api", args=[self.project.slug, self.report.id]),
+            {
+                "frontId": str(front.id),
+                "status": "Pendiente",
+                "desc": "Registro agregado desde el enlace",
+                "images": image,
+            },
+        )
+        self.assertEqual(entry_response.status_code, 201)
+        entry = ReportEntry.objects.get(report=self.report)
+        self.assertEqual(entry.images.count(), 1)
+
+        other_report_response = self.client.post(
+            reverse("project_report_update_api", args=[self.project.slug, self.other_report.id]),
+            {"reportTitle": "No permitido"},
+        )
+        self.assertEqual(other_report_response.status_code, 404)
+
+    def test_public_report_share_allows_signature_upload(self):
+        self.report.report_type = ProjectReport.TYPE_MATERIAL_RECEIPT
+        self.report.save(update_fields=["report_type"])
+        receipt = MaterialReceipt.objects.create(report=self.report)
+        share, share_url = self._create_share()
+        access_response = self._open_public_report(share_url)
+        self.assertEqual(access_response.status_code, 302)
+
+        signature_response = self.client.post(
+            reverse("material_receipt_api", args=[self.project.slug, self.report.id]),
+            {
+                "deliveredBy": "Firmante de prueba",
+                "deliveredDni": "12345678",
+                "deliveredPosition": "Responsable",
+                "signatureDelivered": self._png_upload(),
+            },
+        )
+
+        self.assertEqual(signature_response.status_code, 200)
+        receipt.refresh_from_db()
+        self.assertTrue(receipt.signature_delivered)
+        self.assertEqual(receipt.delivered_by, "Firmante de prueba")
+        self.assertEqual(receipt.delivered_dni, "12345678")
+
+    def test_owner_can_revoke_a_public_report_share(self):
+        share, share_url = self._create_share()
+        access_response = self._open_public_report(share_url)
+        self.assertEqual(access_response.status_code, 302)
+
+        owner_client = Client()
+        owner_client.force_login(self.owner)
+        revoke_response = owner_client.delete(
+            reverse("public_report_share_api", args=[self.project.slug, self.report.id])
+        )
+
+        self.assertEqual(revoke_response.status_code, 200)
+        share.refresh_from_db()
+        self.assertFalse(share.is_active)
+        self.assertEqual(self.client.get(urlsplit(share_url).path).status_code, 404)

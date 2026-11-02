@@ -4,7 +4,7 @@
 {% block body_class %}hold-transition sidebar-mini layout-fixed layout-navbar-fixed{% endblock %}
 
 {% block content %}
-  <div id="appContent" class="wrapper app-shell">
+  <div id="appContent" class="wrapper app-shell{% if public_share %} public-report-share{% endif %}">
     <nav class="main-header navbar navbar-expand navbar-white navbar-light app-admin-navbar">
       <ul class="navbar-nav">
         <li class="nav-item">
@@ -788,6 +788,9 @@
             <button id="exportPdfBtn" type="button" class="btn btn-primary btn-sm d-none">
               <i class="bi bi-file-earmark-pdf me-1"></i><span class="preview-action-full-label">Exportar PDF</span><span class="preview-action-mobile-label">PDF</span>
             </button>
+            <button id="sharePublicReportBtn" type="button" class="btn btn-outline-success btn-sm d-none">
+              <i class="bi bi-share me-1" aria-hidden="true"></i>Compartir para editar
+            </button>
             <div class="form-check mb-0">
               <input class="form-check-input" type="checkbox" id="combineByStatus">
               <label class="form-check-label" for="combineByStatus">Combinar entradas con mismo estado</label>
@@ -871,6 +874,39 @@
             <div class="d-flex gap-2 ms-auto">
               <button type="button" class="btn btn-outline-secondary" data-close-receipt-share>Cerrar</button>
               <button id="saveMaterialReceiptShareBtn" type="submit" class="btn btn-success">Guardar contraseñas y crear enlace</button>
+            </div>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="publicReportShareDialog" class="material-receipt-signature-dialog" aria-labelledby="publicReportShareTitle">
+        <form id="publicReportShareForm">
+          {% csrf_token %}
+          <div class="material-receipt-signature-dialog-header">
+            <div>
+              <h2 id="publicReportShareTitle">Compartir reporte para editar</h2>
+              <p class="mb-0">La persona podrá editar este reporte, agregar textos, marcar y gestionar fotos y firmas, sin iniciar sesión.</p>
+            </div>
+            <button type="button" class="btn-close" aria-label="Cerrar" data-close-public-report-share></button>
+          </div>
+          <div class="material-receipt-share-fields">
+            <label for="publicReportSharePassword">Contraseña para abrir el enlace</label>
+            <input id="publicReportSharePassword" class="form-control" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="Mínimo 8 caracteres">
+            <p class="small text-muted mt-2 mb-0">Cualquier persona con el enlace y la contraseña podrá cambiar el contenido de este reporte. No tendrá acceso a los demás proyectos.</p>
+            <div id="publicReportShareLinkSection" class="material-receipt-share-link d-none mt-3">
+              <label for="publicReportShareUrl">Enlace para compartir</label>
+              <div class="input-group">
+                <input id="publicReportShareUrl" class="form-control" type="url" readonly>
+                <button id="copyPublicReportShareUrlBtn" type="button" class="btn btn-outline-secondary">Copiar</button>
+              </div>
+            </div>
+          </div>
+          <div class="material-receipt-signature-dialog-footer">
+            <span id="publicReportShareStatus" class="small text-muted" role="status" aria-live="polite"></span>
+            <div class="d-flex gap-2 ms-auto">
+              <button id="revokePublicReportShareBtn" type="button" class="btn btn-outline-danger d-none">Revocar enlace</button>
+              <button type="button" class="btn btn-outline-secondary" data-close-public-report-share>Cerrar</button>
+              <button id="savePublicReportShareBtn" type="submit" class="btn btn-success">Crear enlace</button>
             </div>
           </div>
         </form>

@@ -149,6 +149,8 @@ Si las variables no están configuradas, la página explica qué falta configura
 
 Las actas también permiten subir fotos de validación desde el reporte. Se guardan en el acta y se incluyen al final del PDF exportado desde la vista previa en páginas de cuatro fotos (2 × 2); si se suben más de cuatro, se generan páginas adicionales. Las firmas y el encabezado del acta se mantienen en su página existente.
 
+Desde la vista previa, un administrador también puede crear un enlace protegido por contraseña para editar un solo reporte sin iniciar sesión. Las personas con el enlace pueden editar su contenido, frentes, registros, fotos y firmas; el enlace se puede revocar y bloquea temporalmente el acceso tras varios intentos fallidos.
+
 Si quieres que Render te deje creado tu usuario administrador en cada deploy, agrega además estas variables al servicio web:
 
 ```text

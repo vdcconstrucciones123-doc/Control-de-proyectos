@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% load django_bootstrap5 %}
+{% block title %}Reporte compartido{% endblock %}
+{% block body_class %}public-report-access-page{% endblock %}
+
+{% block content %}
+  <main class="container py-5">
+    <section class="card mx-auto p-4 shadow-sm" style="max-width: 460px">
+      <div class="mb-3">
+        <h1 class="h4 mb-2">Reporte compartido</h1>
+        <p class="text-muted mb-0">Ingresa la contraseña que te compartieron para revisar y editar el reporte.</p>
+      </div>
+      {% if error %}
+        <div class="alert alert-danger" role="alert">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="{% url 'public_report_share' share_token=share_token %}">
+        {% csrf_token %}
+        <label class="form-label" for="publicReportPassword">Contraseña</label>
+        <input id="publicReportPassword" class="form-control mb-3" type="password" name="password" autocomplete="current-password" required autofocus>
+        <button class="btn btn-primary w-100" type="submit" {% if locked %}disabled{% endif %}>Entrar al reporte</button>
+      </form>
+      <p class="small text-muted mt-3 mb-0">Este enlace da acceso únicamente al reporte compartido. No necesitas crear una cuenta.</p>
+    </section>
+  </main>
+{% endblock %}
+
+{% block scripts %}{% endblock %}
