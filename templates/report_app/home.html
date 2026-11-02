@@ -533,45 +533,56 @@
       </details>
 
       <section class="card app-section-card mb-3 p-3 d-none" id="equipmentSection">
-        <div class="section-card-header section-card-header-compact mb-3">
-          <span class="section-icon"><i class="bi bi-tools"></i></span>
-          <div class="flex-grow-1">
-            <h2 class="section-title mb-0">Registrar equipo</h2>
-            <p id="equipmentSectionDesc" class="section-desc mb-0">Recepción, validación o entrega. Una foto por equipo.</p>
+        {% if not public_share %}
+          <div class="section-card-header section-card-header-compact mb-3">
+            <span class="section-icon"><i class="bi bi-tools"></i></span>
+            <div class="flex-grow-1">
+              <h2 class="section-title mb-0">Registrar equipo</h2>
+              <p id="equipmentSectionDesc" class="section-desc mb-0">Recepción, validación o entrega. Una foto por equipo.</p>
+            </div>
+            <button id="equipmentBackToProjectBtn" type="button" class="btn btn-outline-secondary btn-sm incident-header-action" aria-label="Volver al proyecto" title="Volver al proyecto"><i class="bi bi-arrow-left" aria-hidden="true"></i></button>
           </div>
-          <button id="equipmentBackToProjectBtn" type="button" class="btn btn-outline-secondary btn-sm incident-header-action" aria-label="Volver al proyecto" title="Volver al proyecto"><i class="bi bi-arrow-left" aria-hidden="true"></i></button>
-        </div>
+        {% endif %}
         <div class="js-materials-only d-none">
           <div class="row g-2 mb-3">
-            <div class="col-6 col-sm-4">
-              <label class="form-label" for="receiptActNumber">N.° de acta</label>
-              <input id="receiptActNumber" class="form-control" maxlength="80">
-            </div>
-            <div class="col-6 col-sm-4">
-              <label class="form-label" for="receiptDate">Fecha de recepción</label>
-              <input id="receiptDate" type="date" class="form-control">
-            </div>
-            <div class="col-12">
-              <label class="form-label" for="receiptCompanyLogoFile">Logo de la empresa para el encabezado</label>
-              <div class="d-flex gap-2 flex-wrap align-items-center materials-receipt-file-actions materials-receipt-logo-actions">
-                <input id="receiptCompanyLogoFile" type="file" class="form-control" accept="image/png,image/jpeg,image/webp" style="max-width: 420px">
-                <button id="clearReceiptCompanyLogoBtn" type="button" class="btn btn-outline-secondary btn-sm">Quitar logo</button>
-                <span class="form-text materials-receipt-upload-help">PNG, JPG o WebP; máximo 5 MB. Guarda el acta para aplicar el logo.</span>
+            {% if not public_share %}
+              <div class="col-6 col-sm-4">
+                <label class="form-label" for="receiptActNumber">N.° de acta</label>
+                <input id="receiptActNumber" class="form-control" maxlength="80">
               </div>
-              <img id="receiptCompanyLogoPreview" class="materials-company-logo-preview d-none mt-2" alt="Vista previa del logo de la empresa">
-            </div>
-            <div class="col-12 mt-2">
-              <p class="form-text mb-1">La conformidad y los datos y firmas de cada responsable se completan directamente en la vista previa.</p>
-            </div>
-            <div class="col-12 mt-2">
+              <div class="col-6 col-sm-4">
+                <label class="form-label" for="receiptDate">Fecha de recepción</label>
+                <input id="receiptDate" type="date" class="form-control">
+              </div>
+              <div class="col-12">
+                <label class="form-label" for="receiptCompanyLogoFile">Logo de la empresa para el encabezado</label>
+                <div class="d-flex gap-2 flex-wrap align-items-center materials-receipt-file-actions materials-receipt-logo-actions">
+                  <input id="receiptCompanyLogoFile" type="file" class="form-control" accept="image/png,image/jpeg,image/webp" style="max-width: 420px">
+                  <button id="clearReceiptCompanyLogoBtn" type="button" class="btn btn-outline-secondary btn-sm">Quitar logo</button>
+                  <span class="form-text materials-receipt-upload-help">PNG, JPG o WebP; máximo 5 MB. Guarda el acta para aplicar el logo.</span>
+                </div>
+                <img id="receiptCompanyLogoPreview" class="materials-company-logo-preview d-none mt-2" alt="Vista previa del logo de la empresa">
+              </div>
+            {% endif %}
+            <div id="materialReceiptPhotoUploadGroup" class="col-12 mt-2">
               <label class="form-label" for="materialReceiptPhotoFiles">Validación fotográfica</label>
               <div class="d-flex gap-2 flex-wrap align-items-center materials-receipt-file-actions materials-receipt-photo-actions">
                 <input id="materialReceiptPhotoFiles" type="file" class="form-control" accept="image/png,image/jpeg,image/webp" multiple style="max-width: 520px">
                 <button id="uploadMaterialReceiptPhotosBtn" type="button" class="btn btn-outline-primary btn-sm"><span class="receipt-action-full-label">Agregar fotos</span><span class="receipt-action-mobile-label">Fotos</span></button>
-                <span class="form-text materials-receipt-upload-help">Sube las fotos que necesites. Se ordenan automáticamente: 4 por página al final del PDF exportado desde la vista previa.</span>
               </div>
-              <div id="materialReceiptPhotoList" class="material-receipt-photo-list mt-2" aria-live="polite"></div>
+              <details class="material-receipt-photo-disclosure mt-2">
+                <summary class="material-receipt-photo-summary">
+                  <span>Fotos cargadas</span>
+                  <span id="materialReceiptPhotoCount" class="material-receipt-photo-count">0 fotos</span>
+                </summary>
+                <div id="materialReceiptPhotoList" class="material-receipt-photo-list" aria-live="polite"></div>
+              </details>
             </div>
+            {% if not public_share %}
+              <div class="col-12 mt-2">
+                <p class="form-text mb-1">La conformidad y los datos y firmas de cada responsable se completan directamente en la vista previa.</p>
+              </div>
+            {% endif %}
           </div>
           <div class="d-flex gap-2 flex-wrap align-items-center mb-3 materials-receipt-actions">
             <button id="saveMaterialReceiptBtn" type="button" class="btn btn-outline-primary btn-sm"><span class="receipt-action-full-label">Guardar datos del acta</span><span class="receipt-action-mobile-label">Guardar</span></button>
@@ -584,6 +595,7 @@
               href="{% if report_id and project_slug %}{% url 'material_receipt_report_fillable_pdf' project_slug report_id %}{% else %}{% url 'material_receipt_template_pdf' %}{% endif %}"
               data-template-url="{% url 'material_receipt_template_pdf' %}"
             ><span class="receipt-action-full-label">Descargar PDF rellenable</span><span class="receipt-action-mobile-label">PDF rellenable</span></a>
+            <button type="button" class="togglePreviewBtn btn btn-outline-primary btn-sm">Ver vista previa</button>
             <span id="materialReceiptSaveStatus" class="small text-muted" role="status" aria-live="polite"></span>
           </div>
         </div>
@@ -636,12 +648,10 @@
           <input id="equipmentPhotoCameraInput" type="file" accept="image/*" capture="environment" class="d-none">
           <input id="equipmentPhotoInput" type="file" accept="image/*" class="d-none">
         </div>
-        <div class="mb-2 d-flex gap-2 flex-wrap js-equipment-only">
+        <div class="mb-2 d-flex gap-2 flex-wrap js-equipment-only equipment-entry-actions">
           <button id="addEquipmentBtn" type="button" class="btn btn-primary w-100 w-sm-auto" aria-label="Agregar equipo" title="Agregar equipo"><i class="bi bi-plus-lg" aria-hidden="true"></i><span class="add-equipment-label">Agregar equipo</span></button>
           <button id="cancelEquipmentEditBtn" type="button" class="btn btn-outline-secondary d-none">Cancelar</button>
-        </div>
-        <div class="d-flex justify-content-end mt-3">
-          <button type="button" class="togglePreviewBtn btn btn-outline-primary btn-sm">Ver vista previa</button>
+          <button type="button" class="togglePreviewBtn btn btn-outline-primary btn-sm js-equipment-only">Ver vista previa</button>
         </div>
         <div id="equipmentList" class="mt-3 js-equipment-only"></div>
       </section>
@@ -788,6 +798,11 @@
             <button id="exportPdfBtn" type="button" class="btn btn-primary btn-sm d-none">
               <i class="bi bi-file-earmark-pdf me-1"></i><span class="preview-action-full-label">Exportar PDF</span><span class="preview-action-mobile-label">PDF</span>
             </button>
+            {% if public_share and public_share.report.report_type == 'materiales' %}
+              <button id="downloadPublicReceiptPdfBtn" type="button" class="btn btn-primary btn-sm d-none">
+                <i class="bi bi-download me-1" aria-hidden="true"></i><span class="preview-action-full-label">Descargar acta firmada</span><span class="preview-action-mobile-label">Descargar acta</span>
+              </button>
+            {% endif %}
             <button id="sharePublicReportBtn" type="button" class="btn btn-outline-success btn-sm d-none">
               <i class="bi bi-share me-1" aria-hidden="true"></i>Compartir para editar
             </button>

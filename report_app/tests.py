@@ -731,7 +731,7 @@ class MaterialReceiptViewTests(TestCase):
         self.assertContains(response, 'id="saveMaterialReceiptPreviewBtn"')
         self.assertContains(response, "Guardar datos del acta")
         self.assertContains(response, 'id="materialReceiptPhotoFiles"')
-        self.assertContains(response, "4 por página al final del PDF exportado")
+        self.assertNotContains(response, "4 por página al final del PDF exportado")
         self.assertContains(response, 'id="materialReceiptSignatureDialog"')
         self.assertContains(response, "Insertar firma")
         self.assertContains(response, "Descargar PDF rellenable")
@@ -1847,6 +1847,19 @@ class PublicReportSharingTests(TestCase):
         self.assertEqual(page_response.status_code, 200)
         self.assertContains(page_response, 'data-public-report-share="true"')
 
+        shared_report_url = reverse("reporte_detail", args=[self.project.slug, self.report.id])
+        for route_name in ("root", "panel_principal", "proyecto"):
+            response = self.client.get(reverse(route_name))
+            self.assertRedirects(response, shared_report_url, fetch_redirect_response=False)
+        self.assertEqual(
+            self.client.get(reverse("proyecto_detail", args=[self.project.slug])).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(reverse("reporte_detail", args=[self.project.slug, self.other_report.id])).status_code,
+            404,
+        )
+
         projects_response = self.client.get(reverse("project_collection_api"))
         self.assertEqual(projects_response.status_code, 200)
         projects = projects_response.json()["projects"]
@@ -1883,7 +1896,7 @@ class PublicReportSharingTests(TestCase):
         )
         self.assertEqual(other_report_response.status_code, 404)
 
-    def test_public_report_share_allows_signature_upload(self):
+    def test_material_receipt_public_share_allows_signature_upload(self):
         self.report.report_type = ProjectReport.TYPE_MATERIAL_RECEIPT
         self.report.save(update_fields=["report_type"])
         receipt = MaterialReceipt.objects.create(report=self.report)
@@ -1907,6 +1920,58 @@ class PublicReportSharingTests(TestCase):
         self.assertEqual(receipt.delivered_by, "Firmante de prueba")
         self.assertEqual(receipt.delivered_dni, "12345678")
 
+    @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+    def test_material_receipt_share_hides_only_receipt_meta_and_keeps_preview_features(self):
+        self.report.report_type = ProjectReport.TYPE_MATERIAL_RECEIPT
+        self.report.save(update_fields=["report_type"])
+        MaterialReceipt.objects.create(report=self.report)
+        _, share_url = self._create_share()
+        access_response = self._open_public_report(share_url)
+        self.assertEqual(access_response.status_code, 302)
+
+        page_response = self.client.get(access_response["Location"])
+        self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, "materialReceiptPhotoFiles")
+        self.assertContains(page_response, "Vista previa del reporte")
+        self.assertContains(page_response, 'id="equipmentName"')
+        self.assertNotContains(page_response, "N.° de acta")
+        self.assertNotContains(page_response, "Fecha de recepción")
+        self.assertNotContains(page_response, "Logo de la empresa para el encabezado")
+        self.assertNotContains(page_response, "La conformidad y los datos y firmas")
+
+        self.assertContains(page_response, 'id="materialReceiptPhotoFiles"')
+        self.assertContains(page_response, 'id="saveMaterialReceiptPreviewBtn"')
+        self.assertContains(page_response, 'id="downloadPublicReceiptPdfBtn"')
+        self.assertNotContains(page_response, "Sube las fotos que necesites.")
+        self.assertNotContains(page_response, "Todavía no hay fotos.")
+
+        photo_url = reverse("material_receipt_photos_api", args=[self.project.slug, self.report.id])
+        upload_response = self.client.post(photo_url, {"photos": self._png_upload()})
+        self.assertEqual(upload_response.status_code, 201)
+        self.assertEqual(MaterialReceiptPhoto.objects.filter(receipt__report=self.report).count(), 1)
+
+        receipt_update_response = self.client.post(
+            reverse("material_receipt_api", args=[self.project.slug, self.report.id]),
+            {"actNumber": "Acta actualizada", "deliveryLocation": "Almacén central"},
+        )
+        self.assertEqual(receipt_update_response.status_code, 200)
+        receipt = MaterialReceipt.objects.get(report=self.report)
+        self.assertEqual(receipt.act_number, "Acta actualizada")
+        self.assertEqual(receipt.delivery_location, "Almacén central")
+        self.assertEqual(receipt_update_response.json()["materialReceipt"]["deliveryLocation"], "Almacén central")
+
+        signatures_response = self.client.post(
+            reverse("material_receipt_api", args=[self.project.slug, self.report.id]),
+            {
+                "deliveredBy": "Responsable 1",
+                "verifiedBy": "Responsable 2",
+                "receivedBy": "Responsable 3",
+                "signatureDelivered": self._png_upload(),
+                "signatureVerified": self._png_upload(),
+                "signatureReceived": self._png_upload(),
+            },
+        )
+        self.assertEqual(signatures_response.status_code, 200)
     def test_owner_can_revoke_a_public_report_share(self):
         share, share_url = self._create_share()
         access_response = self._open_public_report(share_url)

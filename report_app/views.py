@@ -556,6 +556,7 @@ def _serialize_material_receipt(report):
     empty_receipt = {
         "actNumber": "",
         "receiptDate": "",
+        "deliveryLocation": "",
         "supplier": "",
         "deliveryNote": "",
         "deliveredBy": "",
@@ -583,6 +584,7 @@ def _serialize_material_receipt(report):
     return {
         "actNumber": receipt.act_number,
         "receiptDate": receipt.receipt_date.isoformat() if receipt.receipt_date else "",
+        "deliveryLocation": receipt.delivery_location,
         "supplier": receipt.supplier,
         "deliveryNote": receipt.delivery_note,
         "deliveredBy": receipt.delivered_by,
@@ -917,18 +919,41 @@ def public_report_share(request, share_token):
     }))
 
 
-@login_required
 def panel(request, new_project=False):
+    if not request.user.is_authenticated:
+        share = _public_report_share_for_request(request)
+        if share:
+            return redirect(
+                "reporte_detail",
+                project_slug=share.report.project.slug,
+                report_id=share.report_id,
+            )
+        return redirect_to_login(request.get_full_path())
     return home(request, new_project=new_project)
 
 
-@login_required
 def legacy_project_root(request):
+    if not request.user.is_authenticated:
+        share = _public_report_share_for_request(request)
+        if share:
+            return redirect(
+                "reporte_detail",
+                project_slug=share.report.project.slug,
+                report_id=share.report_id,
+            )
+        return redirect_to_login(request.get_full_path())
     return redirect("panel_principal")
 
 
 def root_redirect(request):
     if not request.user.is_authenticated:
+        share = _public_report_share_for_request(request)
+        if share:
+            return redirect(
+                "reporte_detail",
+                project_slug=share.report.project.slug,
+                report_id=share.report_id,
+            )
         return redirect("login")
     return redirect("panel_principal")
 
@@ -1449,6 +1474,7 @@ def material_receipt_api(request, project_slug, report_id):
     receipt, _ = MaterialReceipt.objects.get_or_create(report=report)
     text_fields = {
         "actNumber": ("act_number", 80),
+        "deliveryLocation": ("delivery_location", 200),
         "supplier": ("supplier", 200),
         "deliveryNote": ("delivery_note", 120),
         "deliveredBy": ("delivered_by", 200),

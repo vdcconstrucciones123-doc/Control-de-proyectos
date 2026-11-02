@@ -83,6 +83,7 @@
     return {
       actNumber: '',
       receiptDate: '',
+      deliveryLocation: '',
       supplier: '',
       deliveryNote: '',
       deliveredBy: '',
@@ -2009,7 +2010,10 @@
     const displayDate = receipt.receiptDate
       ? formatDateForDisplay(receipt.receiptDate)
       : '____ / ____ / ______';
-    const projectLocation = state.projectLocation || '________________________________________';
+    const projectLocation = receipt.deliveryLocation || state.projectLocation || '';
+    const deliveryLocationMarkup = isSharedPreview
+      ? `<u>${escapeHtml(projectLocation || '____________________________')}</u>`
+      : `<span class="materials-receipt-location-field" data-receipt-delivery-location role="textbox" aria-label="Lugar de entrega" aria-multiline="true" contenteditable="${previewFieldsDisabled ? 'false' : 'plaintext-only'}">${escapeHtml(projectLocation)}</span>`;
     const receiptPhotos = Array.isArray(receipt.photos) ? receipt.photos : [];
     const photoPageCount = Math.ceil(receiptPhotos.length / 4);
     const totalReceiptPages = chunks.length + photoPageCount;
@@ -2140,7 +2144,7 @@
             </div>
           </header>
           ${pageIndex === 0 ? `<h1>ACTA DE ENTREGA DE MATERIALES</h1>
-          <p class="materials-receipt-intro">Por medio de la presente, se deja constancia de la entrega y recepción de los materiales que se detallan a continuación, realizada en fecha <u>${escapeHtml(displayDate)}</u>, en <u>${escapeHtml(projectLocation)}</u>.</p>` : ''}
+          <p class="materials-receipt-intro">Por medio de la presente, se deja constancia de la entrega y recepción de los materiales que se detallan a continuación, realizada en fecha <u>${escapeHtml(displayDate)}</u>, en ${deliveryLocationMarkup}.</p>` : ''}
           <h2>DETALLE DE LOS MATERIALES ENTREGADOS</h2>
           <table class="materials-receipt-table">
             <colgroup><col class="col-number"><col class="col-description"><col class="col-unit"><col class="col-quantity"><col class="col-observations"></colgroup>
@@ -2466,6 +2470,7 @@
   function renderReportTypeUi(){
     const equipmentMode = isInventoryReport();
     const materialsMode = isMaterialReceiptReport();
+    $('equipmentSection')?.classList.toggle('is-material-receipt', materialsMode);
     const equipmentOnlyStatus = $('equipmentStatusSelect');
     if(equipmentOnlyStatus && isEquipmentReport()){
       const currentStatus = equipmentOnlyStatus.value;
@@ -2570,6 +2575,7 @@
   let receiptCompanyLogoPreviewUrl = '';
   function renderMaterialReceiptEditor(){
     const receipt = state.materialReceipt || emptyMaterialReceipt();
+    updatePublicReceiptDownloadButton(receipt);
     const fields = {
       receiptActNumber: 'actNumber',
       receiptDate: 'receiptDate'
@@ -2629,11 +2635,24 @@
           <button type="button" class="btn btn-outline-danger btn-sm" data-delete-material-receipt-photo="${photo.id}" ${canManagePhotos ? '' : 'disabled'}>Quitar</button>
         </div>`;
       }).join('')
-      : '<p class="form-text mb-0">Todavía no hay fotos. Cada hoja del PDF mostrará 4 espacios.</p>';
+      : '';
+    const photoCount = $('materialReceiptPhotoCount');
+    if(photoCount) photoCount.textContent = `${photos.length} ${photos.length === 1 ? 'foto' : 'fotos'}`;
     const fileInput = $('materialReceiptPhotoFiles');
     const uploadButton = $('uploadMaterialReceiptPhotosBtn');
     if(fileInput) fileInput.disabled = !canManagePhotos;
     if(uploadButton) uploadButton.disabled = !canManagePhotos;
+  }
+
+  function updatePublicReceiptDownloadButton(receipt = state.materialReceipt || emptyMaterialReceipt()){
+    const button = $('downloadPublicReceiptPdfBtn');
+    const hasAllSignatures = ['delivered', 'verified', 'received'].every(
+      key => Boolean(receipt.signatures?.[key])
+    );
+    button?.classList.toggle(
+      'd-none',
+      !isPublicSharedReport || !isMaterialReceiptReport() || !hasAllSignatures
+    );
   }
 
   function localDateIso(){
@@ -2749,6 +2768,7 @@
       receiptDate: 'receiptDate'
     };
     Object.entries(fields).forEach(([key, id]) => formData.append(key, $(id)?.value.trim() || ''));
+    formData.append('deliveryLocation', state.materialReceipt.deliveryLocation || '');
     if(receiptCompanyLogoDirty){
       formData.append('companyLogo', receiptCompanyLogoDirty);
     } else if(receiptCompanyLogoCleared){
@@ -3040,6 +3060,12 @@
     materialReceiptExtraRows = Math.max(0, materialReceiptExtraRows - createdEntries);
 
     const receiptFormData = new FormData();
+    receiptFormData.append(
+      'deliveryLocation',
+      document.querySelector('#reportContainer [data-receipt-delivery-location]')?.textContent.trim()
+        || state.materialReceipt.deliveryLocation
+        || ''
+    );
     receiptFormData.append('conformity', document.querySelector('#reportContainer [name="materialsReceiptConformity"]:checked')?.value || '');
     receiptFormData.append('observations', document.querySelector('#reportContainer [data-material-receipt-observations]')?.value.trim() || '');
     [
@@ -3072,6 +3098,7 @@
 
     state.entries = entries;
     state.materialReceipt = { ...state.materialReceipt, ...receiptData.materialReceipt };
+    updatePublicReceiptDownloadButton(state.materialReceipt);
     receiptSignatureDirty.clear();
     receiptSignatureCleared.clear();
     receiptSignaturePending.clear();
@@ -3244,6 +3271,7 @@
     const reportWorkspaceHeader = $('reportWorkspaceHeader');
     const reportWorkspaceSection = $('reportWorkspaceSection');
     const equipmentMode = isInventoryReport();
+    const publicReceiptPhotoShare = isPublicSharedReport && isMaterialReceiptReport();
     const incidentMode = state.reportType === 'incidencia';
     const formOpen = !!state.showIssueForm && issueFormManuallyOpened;
     const detailOpen = !formOpen && !!state.selectedEntryId;
@@ -3271,7 +3299,7 @@
       existingReportSummarySection.classList.toggle('d-none', equipmentMode || view !== 'summary');
     }
     if(equipmentSection){
-      equipmentSection.classList.toggle('d-none', !equipmentMode || view !== 'equipment');
+      equipmentSection.classList.toggle('d-none', !equipmentMode || (view !== 'equipment' && !publicReceiptPhotoShare));
     }
     if(reportFrontsSection){
       reportFrontsSection.classList.toggle('d-none', equipmentMode || view !== 'fronts');
@@ -4178,6 +4206,14 @@
         const text = document.createElement('div');
         text.className = 'materials-preview-export-text materials-receipt-signer-export-value';
         text.textContent = field.value;
+        captureField.replaceWith(text);
+      });
+      page.querySelectorAll('[data-receipt-delivery-location]').forEach((field, fieldIndex) => {
+        const captureField = capturePage.querySelectorAll('[data-receipt-delivery-location]')[fieldIndex];
+        if(!captureField) return;
+        const text = document.createElement('span');
+        text.className = 'materials-receipt-location-export-value';
+        text.textContent = field.textContent.trim() || '____________________________';
         captureField.replaceWith(text);
       });
       const captureHost = document.createElement('div');
@@ -5827,7 +5863,10 @@
       });
     });
     $('reportContainer')?.addEventListener('input', event => {
-      if(event.target.matches('.materials-preview-field, [data-material-receipt-observations], [data-receipt-signer-field]')){
+      if(event.target.matches('[data-receipt-delivery-location]')){
+        state.materialReceipt.deliveryLocation = event.target.textContent;
+      }
+      if(event.target.matches('.materials-preview-field, [data-material-receipt-observations], [data-receipt-signer-field], [data-receipt-delivery-location]')){
         if(event.target.matches('textarea.materials-preview-multiline')){
           resizeMaterialReceiptTextarea(event.target);
         }
@@ -6148,6 +6187,21 @@
           button.disabled = false;
           button.innerHTML = originalLabel;
         }
+      }
+    });
+    $('downloadPublicReceiptPdfBtn')?.addEventListener('click', async event => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      const originalLabel = button.innerHTML;
+      button.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Preparando PDF...';
+      try {
+        const pdf = await generateReportPdf();
+        pdf.save(buildPdfFileName());
+      } catch(error) {
+        alert(error.message || 'No se pudo exportar el PDF.');
+      } finally {
+        button.disabled = false;
+        button.innerHTML = originalLabel;
       }
     });
   }

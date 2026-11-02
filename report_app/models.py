@@ -251,6 +251,7 @@ class MaterialReceipt(models.Model):
     report = models.OneToOneField(ProjectReport, on_delete=models.CASCADE, related_name="material_receipt")
     act_number = models.CharField(max_length=80, blank=True)
     receipt_date = models.DateField(null=True, blank=True)
+    delivery_location = models.CharField(max_length=200, blank=True)
     supplier = models.CharField(max_length=200, blank=True)
     delivery_note = models.CharField(max_length=120, blank=True)
     delivered_by = models.CharField(max_length=200, blank=True)
